@@ -1,0 +1,3682 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>霓虹回声 - Neon Echo</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #050505;
+            overflow: hidden;
+            font-family: 'Orbitron', sans-serif;
+            touch-action: none;
+            cursor: crosshair;
+        }
+        canvas { display: block; }
+        .ui-layer {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            text-align: center; z-index: 10;
+        }
+        .hidden { display: none !important; }
+        .hud {
+            position: absolute; top: 16px; left: 16px;
+            pointer-events: none; text-align: left;
+        }
+        .hud-score { color: #00f2ff; font-size: 18px; }
+        .hud-best { color: #555; font-size: 11px; margin-top: 2px; }
+        .hud-hp-wrap { margin-top: 8px; }
+        .hud-hp-bg {
+            width: 140px; height: 10px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 5px; overflow: hidden;
+            border: 1px solid rgba(255,34,102,0.3);
+        }
+        .hud-hp-fill {
+            height: 100%; width: 100%;
+            background: linear-gradient(90deg, #ff2266, #ff6688);
+            transition: width 0.15s ease-out;
+            border-radius: 5px;
+        }
+        .hud-hp-label {
+            color: rgba(255,34,102,0.6); font-size: 9px;
+            margin-top: 2px; letter-spacing: 2px;
+        }
+        .energy-wrap {
+            position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%);
+            width: 200px; text-align: center;
+        }
+        .energy-bar-bg {
+            width: 100%; height: 8px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 4px; overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        .energy-bar-fill {
+            height: 100%; width: 100%;
+            background: linear-gradient(90deg, #00f2ff, #00c3ff);
+            transition: width 0.08s linear;
+            box-shadow: 0 0 8px #00f2ff;
+        }
+        .energy-label {
+            color: rgba(0,242,255,0.5); font-size: 9px;
+            margin-top: 4px; letter-spacing: 3px;
+        }
+        .menu-bg {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(4px);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            z-index: 20;
+        }
+        .title {
+            font-size: 3.5rem; font-weight: 900; color: #fff;
+            text-shadow: 2px 2px #ff00de, -2px -2px #00f2ff;
+            letter-spacing: 4px;
+        }
+        .subtitle {
+            color: #666; font-size: 0.75rem;
+            letter-spacing: 6px; margin: 8px 0 30px;
+        }
+        .info-box {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid #333; border-radius: 6px;
+            padding: 20px 28px; max-width: 420px;
+            text-align: left; color: #aaa; font-size: 13px;
+            line-height: 1.8;
+        }
+        .info-box .key { color: #00f2ff; font-weight: 700; }
+        .btn {
+            pointer-events: auto;
+            background: transparent;
+            border: 2px solid #00f2ff; color: #00f2ff;
+            padding: 12px 40px; font-size: 1rem;
+            font-family: 'Orbitron', sans-serif;
+            text-transform: uppercase; letter-spacing: 3px;
+            cursor: pointer; transition: all 0.2s;
+            margin-top: 24px;
+        }
+        .btn:hover {
+            background: #00f2ff; color: #000;
+            box-shadow: 0 0 24px #00f2ff;
+        }
+        .btn-ai {
+            border-color: #be00ff; color: #be00ff;
+            font-size: 0.85rem; padding: 10px 24px; margin-top: 12px;
+        }
+        .btn-ai:hover {
+            background: #be00ff; color: #fff; box-shadow: 0 0 20px #be00ff;
+        }
+        .game-over-title {
+            font-size: 3rem; font-weight: 900; color: #ff2244;
+            text-shadow: 0 0 20px rgba(255,0,50,0.6);
+            letter-spacing: 2px;
+        }
+        .final-score { color: #fff; font-size: 1.2rem; margin: 8px 0; }
+        .final-score span { color: #00f2ff; }
+        .ai-box {
+            margin-top: 12px; padding: 14px;
+            border: 1px dashed #be00ff;
+            background: rgba(20,0,30,0.8);
+            max-width: 400px; width: 90%;
+            text-align: left; display: none;
+        }
+        .ai-box .ai-rank { color: #be00ff; font-size: 11px; font-weight: 700; }
+        .ai-box .ai-log { color: #ccc; font-size: 12px; font-style: italic; margin-top: 4px; }
+        .scanline {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none; z-index: 5;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent, transparent 2px,
+                rgba(0,255,255,0.015) 2px, rgba(0,255,255,0.015) 4px
+            );
+        }
+        /* ── Achievement Summary (game over) ── */
+        .over-ach-wrap {
+            display: flex; flex-wrap: wrap; gap: 6px;
+            justify-content: center; margin-top: 6px;
+        }
+        .over-ach-item {
+            background: rgba(255,204,0,0.08); border: 1px solid rgba(255,204,0,0.3);
+            border-radius: 4px; padding: 4px 10px;
+            font-size: 11px; color: #ffcc00;
+            animation: achFadeIn 0.4s ease-out both;
+        }
+        .over-ach-item .ach-i { margin-right: 4px; }
+        .over-ach-item .ach-d { color: #888; font-size: 9px; margin-left: 4px; }
+        @keyframes achFadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+        /* ── Name Input ── */
+        .name-section {
+            margin-top: 18px; display: flex; flex-direction: column;
+            align-items: center; gap: 4px;
+        }
+        .name-label {
+            font-size: 10px; color: #555; letter-spacing: 3px; text-transform: uppercase;
+        }
+        .name-input {
+            background: rgba(0,242,255,0.05); border: 2px solid rgba(0,242,255,0.4);
+            border-radius: 4px;
+            color: #00f2ff; font-family: 'Orbitron', sans-serif;
+            font-size: 16px; padding: 10px 16px; width: 240px;
+            text-align: center; letter-spacing: 3px;
+            outline: none; transition: all 0.2s;
+        }
+        .name-input::placeholder { color: rgba(0,242,255,0.2); letter-spacing: 2px; font-size: 13px; }
+        .name-input:focus { border-color: #00f2ff; background: rgba(0,242,255,0.08); box-shadow: 0 0 16px rgba(0,242,255,0.2); }
+        .name-hint {
+            font-size: 9px; color: #555; margin-top: 2px;
+            letter-spacing: 1px; height: 14px; transition: color 0.2s;
+        }
+        .btn-start {
+            pointer-events: auto;
+            background: rgba(0,242,255,0.1); border: 2px solid #00f2ff;
+            color: #00f2ff; padding: 14px 50px; font-size: 1.1rem;
+            font-family: 'Orbitron', sans-serif; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 4px;
+            cursor: pointer; transition: all 0.25s;
+            margin-top: 16px; border-radius: 4px;
+        }
+        .btn-start:hover {
+            background: #00f2ff; color: #000;
+            box-shadow: 0 0 30px rgba(0,242,255,0.5);
+        }
+        .btn-start.disabled {
+            background: transparent; border-color: #222; color: #333;
+            cursor: not-allowed; box-shadow: none;
+        }
+        .btn-start.disabled:hover { background: transparent; color: #333; box-shadow: none; }
+        .btn-sub {
+            pointer-events: auto;
+            background: transparent; border: 1px solid #444; color: #666;
+            padding: 7px 18px; font-size: 0.65rem;
+            font-family: 'Orbitron', sans-serif;
+            letter-spacing: 2px; cursor: pointer;
+            transition: all 0.2s; border-radius: 3px;
+        }
+        .btn-sub:hover { border-color: #888; color: #ccc; }
+        .btn-sub.disabled { border-color: #222; color: #2a2a2a; cursor: not-allowed; }
+        .btn-sub.disabled:hover { border-color: #222; color: #2a2a2a; }
+        /* ── Leaderboard ── */
+        .leaderboard { margin-top: 14px; width: 320px; max-height: 200px; overflow-y: auto; }
+        .lb-row {
+            display: flex; justify-content: space-between;
+            padding: 4px 8px; font-size: 11px; color: #aaa;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .lb-row:nth-child(1) { color: #ffcc00; }
+        .lb-row:nth-child(2) { color: #c0c0c0; }
+        .lb-row:nth-child(3) { color: #cd7f32; }
+        .lb-rank { width: 30px; text-align: center; }
+        .lb-name { flex: 1; text-align: left; margin: 0 8px; overflow: hidden; text-overflow: ellipsis; }
+        .lb-score { width: 60px; text-align: right; color: #00f2ff; }
+        .lb-time { width: 50px; text-align: right; color: #666; }
+        /* ── Achievement Panel ── */
+        .achieve-panel {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); backdrop-filter: blur(4px);
+            display: flex; flex-direction: column; justify-content: center;
+            align-items: center; z-index: 25; pointer-events: auto;
+        }
+        .achieve-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr);
+            gap: 10px; max-width: 500px; width: 90%; margin-top: 16px;
+            max-height: 50vh; overflow-y: auto;
+        }
+        .ach-card {
+            background: rgba(255,255,255,0.03); border: 1px solid #333;
+            border-radius: 6px; padding: 10px; text-align: center;
+        }
+        .ach-card.unlocked { border-color: #ffcc00; }
+        .ach-card .ach-icon { font-size: 20px; }
+        .ach-card .ach-name { font-size: 10px; color: #ccc; margin-top: 4px; }
+        .ach-card .ach-info { font-size: 9px; color: #666; margin-top: 2px; }
+        .ach-card.locked .ach-icon { opacity: 0.2; }
+        .ach-card.locked .ach-name { color: #444; }
+        /* ── Card Selection Overlay ── */
+        .card-overlay {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.82);
+            backdrop-filter: blur(6px);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            z-index: 30; pointer-events: auto;
+        }
+        .card-title {
+            font-size: 1.4rem; font-weight: 700; color: #00f2ff;
+            letter-spacing: 4px; margin-bottom: 8px;
+            text-shadow: 0 0 12px rgba(0,242,255,0.5);
+        }
+        .card-subtitle {
+            font-size: 0.7rem; color: #555; letter-spacing: 3px; margin-bottom: 24px;
+        }
+        .card-container { display: flex; gap: 18px; }
+        .card-item {
+            width: 160px; padding: 18px 14px;
+            background: rgba(10,10,20,0.95);
+            border: 2px solid #444; border-radius: 8px;
+            cursor: pointer; transition: all 0.2s;
+            text-align: center; position: relative;
+        }
+        .card-item:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 8px 30px rgba(0,242,255,0.2);
+        }
+        .card-item.rarity-common { border-color: #aaa; }
+        .card-item.rarity-common:hover { border-color: #fff; }
+        .card-item.rarity-rare { border-color: #4488ff; }
+        .card-item.rarity-rare:hover { border-color: #66aaff; box-shadow: 0 8px 30px rgba(68,136,255,0.3); }
+        .card-item.rarity-epic { border-color: #aa44ff; }
+        .card-item.rarity-epic:hover { border-color: #cc66ff; box-shadow: 0 8px 30px rgba(170,68,255,0.3); }
+        .card-name {
+            font-size: 0.85rem; font-weight: 700; color: #fff;
+            margin-bottom: 8px; letter-spacing: 1px;
+        }
+        .card-desc {
+            font-size: 0.65rem; color: #999; line-height: 1.6;
+            font-family: sans-serif;
+        }
+        .card-rarity-tag {
+            font-size: 0.55rem; letter-spacing: 2px;
+            margin-top: 10px; padding: 2px 8px;
+            border-radius: 3px; display: inline-block;
+        }
+        .card-rarity-tag.common { background: rgba(170,170,170,0.15); color: #aaa; }
+        .card-rarity-tag.rare { background: rgba(68,136,255,0.15); color: #4488ff; }
+        .card-rarity-tag.epic { background: rgba(170,68,255,0.15); color: #aa44ff; }
+        .card-level {
+            position: absolute; top: 6px; right: 8px;
+            font-size: 0.6rem; color: #ffcc00;
+        }
+        .card-skip {
+            pointer-events: auto; margin-top: 20px;
+            background: transparent; border: 1px solid #555;
+            color: #666; padding: 8px 28px; font-size: 0.7rem;
+            font-family: 'Orbitron', sans-serif;
+            letter-spacing: 2px; cursor: pointer; transition: all 0.2s;
+        }
+        .card-skip:hover { border-color: #888; color: #aaa; }
+    </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="scanline"></div>
+
+<div id="hud" class="ui-layer hidden">
+    <div class="hud">
+        <div class="hud-score">SCORE: <span id="scoreVal">0</span></div>
+        <div class="hud-best">BEST: <span id="bestVal">0</span></div>
+        <div class="hud-hp-wrap">
+            <div class="hud-hp-bg"><div class="hud-hp-fill" id="hpBar"></div></div>
+            <div class="hud-hp-label">SHIELD</div>
+        </div>
+    </div>
+    <div class="energy-wrap">
+        <div class="energy-bar-bg"><div class="energy-bar-fill" id="eBar"></div></div>
+        <div class="energy-label">SONAR ENERGY</div>
+    </div>
+</div>
+
+<div id="cardOverlay" class="card-overlay hidden">
+    <div class="card-title">SYSTEM UPGRADE</div>
+    <div class="card-subtitle">选择一张卡牌强化</div>
+    <div class="card-container" id="cardContainer"></div>
+    <button class="card-skip" id="btnSkipCard">跳 过</button>
+</div>
+
+<div id="menuStart" class="menu-bg">
+    <div class="title">NEON ECHO</div>
+    <div class="subtitle">在迷雾中生存</div>
+    <div class="info-box">
+        <p><span class="key">WASD</span> 移动 &nbsp; <span class="key">鼠标</span> 瞄准 &nbsp; <span class="key">左键</span> 射击 &nbsp; <span class="key">右键</span> 声纳</p>
+        <p style="font-size:12px; margin-top:10px; color:#999;">你只能看到身边极近的区域。<span class="key">声纳</span>可探测远处的敌人和道具，但会<span style="color:#ffaa44;">暴露你的位置</span>。</p>
+        <p style="font-size:12px; color:#999; margin-top:6px;">道具仅在声纳照亮后才可见和拾取：</p>
+        <div style="display:flex; justify-content:center; gap:18px; margin:8px 0 4px; flex-wrap:wrap;">
+            <div style="text-align:center; font-size:10px; color:#888; line-height:1.5;">
+                <svg width="28" height="28" viewBox="0 0 28 28"><polygon points="14,2 26,14 14,26 2,14" fill="none" stroke="#ff66aa" stroke-width="2"/><text x="14" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="#ff66aa" font-family="monospace">+</text></svg>
+                <div style="color:#ff66aa;">回血</div>
+            </div>
+            <div style="text-align:center; font-size:10px; color:#888; line-height:1.5;">
+                <svg width="28" height="28" viewBox="0 0 28 28"><polygon points="14,2 26,14 14,26 2,14" fill="none" stroke="#66ffcc" stroke-width="2"/><text x="14" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="#66ffcc" font-family="monospace">E</text></svg>
+                <div style="color:#66ffcc;">能量</div>
+            </div>
+            <div style="text-align:center; font-size:10px; color:#888; line-height:1.5;">
+                <svg width="28" height="28" viewBox="0 0 28 28"><polygon points="14,2 26,14 14,26 2,14" fill="none" stroke="#66ccff" stroke-width="2"/><text x="14" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="#66ccff" font-family="monospace">S</text></svg>
+                <div style="color:#66ccff;">护盾</div>
+            </div>
+            <div style="text-align:center; font-size:10px; color:#888; line-height:1.5;">
+                <svg width="28" height="28" viewBox="0 0 28 28"><polygon points="14,2 26,14 14,26 2,14" fill="none" stroke="#ffcc00" stroke-width="2"/><text x="14" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="#ffcc00" font-family="monospace">D</text></svg>
+                <div style="color:#ffcc00;">双倍分</div>
+            </div>
+            <div style="text-align:center; font-size:10px; color:#888; line-height:1.5;">
+                <svg width="28" height="28" viewBox="0 0 28 28"><polygon points="9,2 19,2 26,9 26,19 19,26 9,26 2,19 2,9" fill="none" stroke="#ffaa00" stroke-width="2"/><text x="14" y="16.5" text-anchor="middle" font-size="10" font-weight="bold" fill="#ffaa00" font-family="monospace">C</text></svg>
+                <div style="color:#ffaa00;">芯片箱</div>
+            </div>
+        </div>
+        <p style="font-size:11px; color:#888; margin-top:4px;">地形会逐步变化：出现<span style="color:#aaa;">墙体</span>遮挡声纳，后期还有<span style="color:#ffaa44;">脆弱墙</span>和<span class="key">反射墙</span>。</p>
+        <p style="font-size:11px; color:#555; margin-top:6px; text-align:center;">活得越久，敌人越强。</p>
+    </div>
+    <div class="name-section">
+        <div class="name-label">输入你的代号</div>
+        <input type="text" class="name-input" id="playerNameInput" list="nameHistory" placeholder="AGENT-X" maxlength="12" autocomplete="off">
+        <datalist id="nameHistory"></datalist>
+        <div class="name-hint" id="nameHint">输入代号以解锁</div>
+    </div>
+    <button class="btn-start disabled" id="btnStart">▶ 进入迷雾</button>
+    <div style="display:flex; gap:14px; margin-top:14px;">
+        <button class="btn-sub disabled" id="btnAchievements">☆ 成就</button>
+        <button class="btn-sub" id="btnLeaderboard">⊞ 排行榜</button>
+    </div>
+</div>
+
+<div id="menuOver" class="menu-bg hidden">
+    <div class="game-over-title">SIGNAL LOST</div>
+    <div class="final-score">最终得分: <span id="finalScore">0</span> &nbsp; 存活: <span id="finalTime">0</span>s</div>
+    <div class="ai-box" id="aiBox" style="display:block;">
+        <div class="ai-rank" id="aiRank">ANALYZING...</div>
+        <div class="ai-log" id="aiLog">数据恢复中...</div>
+    </div>
+    <div id="overAchievements" style="margin-top:8px; max-width:400px; width:90%;"></div>
+    <div class="leaderboard" id="overLeaderboard"></div>
+    <button class="btn" id="btnRestart">重新连接</button>
+</div>
+
+<div id="achievePanel" class="achieve-panel hidden">
+    <div style="font-size:1.2rem; font-weight:700; color:#ffcc00; letter-spacing:3px;">成就</div>
+    <div id="achievePlayerName" style="font-size:0.7rem; color:#888; margin-top:2px;"></div>
+    <div style="font-size:0.6rem; color:#555; margin-top:2px;" id="achieveProgress"></div>
+    <div class="achieve-grid" id="achieveGrid"></div>
+    <button class="btn" style="font-size:0.7rem; padding:8px 20px;" id="btnCloseAchieve">返回</button>
+</div>
+
+<div id="leaderPanel" class="achieve-panel hidden">
+    <div style="font-size:1.2rem; font-weight:700; color:#00f2ff; letter-spacing:3px;">排行榜</div>
+    <div class="leaderboard" id="fullLeaderboard" style="max-height:60vh;"></div>
+    <button class="btn" style="font-size:0.7rem; padding:8px 20px;" id="btnCloseLeader">返回</button>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  NEON ECHO v4.0 — Full Feature
+// ═══════════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// ═══════════════════════════════════════════════════════════
+//  SOUND ENGINE (Web Audio API — procedural synth, no files)
+// ═══════════════════════════════════════════════════════════
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+function ensureAudio() { if (!audioCtx) audioCtx = new AudioCtx(); }
+
+const SFX = {
+    shoot() {
+        ensureAudio();
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'square'; o.frequency.setValueAtTime(800, audioCtx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.06);
+        g.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.06);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(); o.stop(audioCtx.currentTime + 0.06);
+    },
+    sonar() {
+        ensureAudio();
+        const t = audioCtx.currentTime;
+        // Layer 1: clean ping — short sine blip downward
+        const o1 = audioCtx.createOscillator();
+        const g1 = audioCtx.createGain();
+        o1.type = 'sine';
+        o1.frequency.setValueAtTime(880, t);
+        o1.frequency.exponentialRampToValueAtTime(440, t + 0.08);
+        o1.frequency.exponentialRampToValueAtTime(220, t + 0.25);
+        g1.gain.setValueAtTime(0.09, t);
+        g1.gain.linearRampToValueAtTime(0.06, t + 0.05);
+        g1.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+        o1.connect(g1); g1.connect(audioCtx.destination);
+        o1.start(t); o1.stop(t + 0.3);
+        // Layer 2: soft echo tail — delayed quieter ping
+        const o2 = audioCtx.createOscillator();
+        const g2 = audioCtx.createGain();
+        o2.type = 'sine';
+        o2.frequency.setValueAtTime(660, t + 0.08);
+        o2.frequency.exponentialRampToValueAtTime(165, t + 0.4);
+        g2.gain.setValueAtTime(0.0001, t);
+        g2.gain.linearRampToValueAtTime(0.04, t + 0.1);
+        g2.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+        o2.connect(g2); g2.connect(audioCtx.destination);
+        o2.start(t + 0.08); o2.stop(t + 0.45);
+    },
+    hit() {
+        ensureAudio();
+        const bufSize = audioCtx.sampleRate * 0.05;
+        const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
+        const src = audioCtx.createBufferSource();
+        const g = audioCtx.createGain();
+        src.buffer = buf; g.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+        src.connect(g); g.connect(audioCtx.destination);
+        src.start();
+    },
+    explosion() {
+        ensureAudio();
+        const bufSize = audioCtx.sampleRate * 0.25;
+        const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 2);
+        const src = audioCtx.createBufferSource();
+        const g = audioCtx.createGain();
+        src.buffer = buf; g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+        src.connect(g); g.connect(audioCtx.destination);
+        src.start();
+    },
+    pickup() {
+        ensureAudio();
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(600, audioCtx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
+        g.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(); o.stop(audioCtx.currentTime + 0.12);
+    },
+    cardSelect() {
+        ensureAudio();
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(400, audioCtx.currentTime);
+        o.frequency.setValueAtTime(600, audioCtx.currentTime + 0.06);
+        o.frequency.setValueAtTime(900, audioCtx.currentTime + 0.12);
+        g.gain.setValueAtTime(0.07, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(); o.stop(audioCtx.currentTime + 0.18);
+    },
+    bossWarn() {
+        ensureAudio();
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(120, audioCtx.currentTime);
+        o.frequency.setValueAtTime(180, audioCtx.currentTime + 0.2);
+        o.frequency.setValueAtTime(120, audioCtx.currentTime + 0.4);
+        g.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        g.gain.linearRampToValueAtTime(0.12, audioCtx.currentTime + 0.2);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(); o.stop(audioCtx.currentTime + 0.5);
+    },
+    bossDead() {
+        ensureAudio();
+        for (let i = 0; i < 3; i++) {
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.type = 'sine';
+            o.frequency.setValueAtTime(400 + i * 200, audioCtx.currentTime + i * 0.12);
+            g.gain.setValueAtTime(0.08, audioCtx.currentTime + i * 0.12);
+            g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + i * 0.12 + 0.2);
+            o.connect(g); g.connect(audioCtx.destination);
+            o.start(audioCtx.currentTime + i * 0.12);
+            o.stop(audioCtx.currentTime + i * 0.12 + 0.2);
+        }
+    },
+    playerHit() {
+        ensureAudio();
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(200, audioCtx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(60, audioCtx.currentTime + 0.15);
+        g.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(); o.stop(audioCtx.currentTime + 0.15);
+    },
+    shieldBreak() {
+        ensureAudio();
+        const bufSize = audioCtx.sampleRate * 0.2;
+        const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) {
+            const t = i / audioCtx.sampleRate;
+            d[i] = Math.sin(t * 800 * Math.PI * 2) * 0.3 * Math.pow(1 - i / bufSize, 1.5)
+                 + (Math.random() * 2 - 1) * 0.2 * Math.pow(1 - i / bufSize, 2);
+        }
+        const src = audioCtx.createBufferSource();
+        const g = audioCtx.createGain();
+        src.buffer = buf; g.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        src.connect(g); g.connect(audioCtx.destination);
+        src.start();
+    },
+    death() {
+        ensureAudio();
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(300, audioCtx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.8);
+        g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.8);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(); o.stop(audioCtx.currentTime + 0.8);
+    },
+    achieve() {
+        ensureAudio();
+        const notes = [523, 659, 784, 1047]; // C5 E5 G5 C6
+        notes.forEach((f, i) => {
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.type = 'sine'; o.frequency.value = f;
+            g.gain.setValueAtTime(0.06, audioCtx.currentTime + i * 0.08);
+            g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + i * 0.08 + 0.15);
+            o.connect(g); g.connect(audioCtx.destination);
+            o.start(audioCtx.currentTime + i * 0.08);
+            o.stop(audioCtx.currentTime + i * 0.08 + 0.15);
+        });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════
+//  BACKGROUND MUSIC
+// ═══════════════════════════════════════════════════════════
+let bgm = null;
+function initBGM() {
+    if (bgm) return;
+    bgm = new Audio('Perpetual Neon-Hunt.mp3');
+    bgm.loop = true;
+    bgm.volume = 0.3;
+}
+function playBGM() {
+    initBGM();
+    if (bgm.paused) bgm.play().catch(() => {});
+}
+function stopBGM() {
+    if (bgm && !bgm.paused) {
+        bgm.pause();
+        bgm.currentTime = 0;
+    }
+}
+function fadeBGM(targetVol, duration) {
+    if (!bgm) return;
+    const startVol = bgm.volume;
+    const startTime = performance.now();
+    function step() {
+        const elapsed = (performance.now() - startTime) / (duration * 1000);
+        if (elapsed >= 1) { bgm.volume = targetVol; return; }
+        bgm.volume = startVol + (targetVol - startVol) * elapsed;
+        requestAnimationFrame(step);
+    }
+    step();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ACHIEVEMENT SYSTEM
+// ═══════════════════════════════════════════════════════════
+const ACHIEVEMENTS = [
+    { id: 'first_kill',    icon: '💀', name: '初次击杀',     desc: '消灭第一个敌人', check: s => s.kills >= 1 },
+    { id: 'kill_50',       icon: '🔥', name: '战斗机器',     desc: '单局击杀50个敌人', check: s => s.kills >= 50 },
+    { id: 'kill_200',      icon: '☠️', name: '死神',         desc: '单局击杀200个敌人', check: s => s.kills >= 200 },
+    { id: 'survive_60',    icon: '⏱️', name: '一分钟',       desc: '存活60秒', check: s => s.time >= 60 },
+    { id: 'survive_180',   icon: '⏰', name: '三分钟',       desc: '存活180秒', check: s => s.time >= 180 },
+    { id: 'survive_300',   icon: '🏆', name: '五分钟传奇',   desc: '存活300秒', check: s => s.time >= 300 },
+    { id: 'score_500',     icon: '⭐', name: '新星',         desc: '得分达到500', check: s => s.score >= 500 },
+    { id: 'score_2000',    icon: '🌟', name: '超新星',       desc: '得分达到2000', check: s => s.score >= 2000 },
+    { id: 'score_5000',    icon: '💫', name: '脉冲星',       desc: '得分达到5000', check: s => s.score >= 5000 },
+    { id: 'boss_kill',     icon: '👑', name: 'Boss猎手',     desc: '击杀第一个Boss', check: s => s.bossKills >= 1 },
+    { id: 'boss_3',        icon: '🏅', name: '三冠王',       desc: '单局击杀3个Boss', check: s => s.bossKills >= 3 },
+    { id: 'no_damage_30',  icon: '🛡️', name: '无伤30秒',     desc: '连续30秒不受伤', check: s => s.maxNoDmgTime >= 30 },
+    { id: 'card_5',        icon: '🃏', name: '收藏家',       desc: '获得5张不同卡牌', check: s => s.uniqueCards >= 5 },
+    { id: 'card_max',      icon: '💎', name: '满级大师',     desc: '将任意卡牌升至Lv.5', check: s => s.maxCardLv >= 5 },
+    { id: 'hive_clear',    icon: '🐝', name: '清巢者',       desc: '击杀一个蜂巢', check: s => s.hiveKills >= 1 },
+    { id: 'phantom_kill',  icon: '👻', name: '猎魂者',       desc: '击杀3个幽灵', check: s => s.phantomKills >= 3 },
+    { id: 'wall_break',    icon: '💥', name: '破壁者',       desc: '摧毁一面脆弱墙', check: s => s.wallsBroken >= 1 },
+    { id: 'shield_use',    icon: '⚡', name: '盾反',         desc: '使用护盾爆炸击杀敌人', check: s => s.shieldKills >= 1 },
+];
+
+let unlockedAchievements = []; // loaded per-player on name input/startGame
+// Session stats for achievement checking
+let sessionStats = {};
+function resetSessionStats() {
+    sessionStats = {
+        kills: 0, bossKills: 0, score: 0, time: 0,
+        maxNoDmgTime: 0, noDmgTimer: 0,
+        uniqueCards: 0, maxCardLv: 0,
+        hiveKills: 0, phantomKills: 0,
+        wallsBroken: 0, shieldKills: 0,
+    };
+}
+resetSessionStats();
+
+function checkAchievements() {
+    sessionStats.time = gameTime;
+    sessionStats.score = score;
+    if (player) {
+        sessionStats.uniqueCards = player.cards.size;
+        let maxLv = 0;
+        for (const lv of player.cards.values()) maxLv = Math.max(maxLv, lv);
+        sessionStats.maxCardLv = maxLv;
+    }
+    for (const ach of ACHIEVEMENTS) {
+        if (unlockedAchievements.includes(ach.id)) continue;
+        if (ach.check(sessionStats)) {
+            unlockedAchievements.push(ach.id);
+            sessionNewAchievements.push(ach);
+            localStorage.setItem('neonEchoAch_' + currentPlayerName, JSON.stringify(unlockedAchievements));
+        }
+    }
+}
+// Collected during gameplay, shown at game over
+let sessionNewAchievements = [];
+
+function renderAchievePanel() {
+    document.getElementById('achievePlayerName').textContent = '代号: ' + currentPlayerName;
+    const count = unlockedAchievements.length;
+    document.getElementById('achieveProgress').textContent = count + ' / ' + ACHIEVEMENTS.length + ' 已解锁';
+    const grid = document.getElementById('achieveGrid');
+    grid.innerHTML = '';
+    for (const ach of ACHIEVEMENTS) {
+        const unlocked = unlockedAchievements.includes(ach.id);
+        const card = document.createElement('div');
+        card.className = 'ach-card ' + (unlocked ? 'unlocked' : 'locked');
+        card.innerHTML = '<div class="ach-icon">' + ach.icon + '</div><div class="ach-name">' + ach.name + '</div><div class="ach-info">' + ach.desc + '</div>';
+        grid.appendChild(card);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  LEADERBOARD (localStorage)
+// ═══════════════════════════════════════════════════════════
+let leaderboard = JSON.parse(localStorage.getItem('neonEchoLeaderboard') || '[]');
+let currentPlayerName = localStorage.getItem('neonEchoPlayerName') || '';
+
+function addToLeaderboard(name, sc, time) {
+    if (!name) name = 'UNKNOWN';
+    const existing = leaderboard.find(e => e.name === name);
+    if (existing) {
+        existing.runs = (existing.runs || 1) + 1;
+        if (sc > existing.score) {
+            existing.score = sc;
+            existing.time = Math.floor(time);
+            existing.date = Date.now();
+            existing.isNew = true; // flag for highlight
+        } else {
+            existing.isNew = false;
+        }
+    } else {
+        leaderboard.push({ name: name, score: sc, time: Math.floor(time), date: Date.now(), runs: 1, isNew: true });
+    }
+    leaderboard.sort((a, b) => b.score - a.score);
+    if (leaderboard.length > 30) leaderboard = leaderboard.slice(0, 30); // keep top 30
+    localStorage.setItem('neonEchoLeaderboard', JSON.stringify(leaderboard));
+}
+
+function renderLeaderboard(containerId, highlightName) {
+    const el = document.getElementById(containerId);
+    el.innerHTML = '';
+    if (leaderboard.length === 0) {
+        el.innerHTML = '<div style="color:#555;font-size:11px;text-align:center;padding:12px;">暂无记录</div>';
+        return;
+    }
+    leaderboard.forEach((entry, i) => {
+        const row = document.createElement('div');
+        row.className = 'lb-row';
+        if (highlightName && entry.name === highlightName) row.style.background = 'rgba(0,242,255,0.08)';
+        const runsText = (entry.runs && entry.runs > 1) ? '<span style="color:#555;font-size:9px;margin-left:4px;">x' + entry.runs + '</span>' : '';
+        row.innerHTML = '<span class="lb-rank">' + (i + 1) + '</span>'
+            + '<span class="lb-name">' + entry.name + runsText + '</span>'
+            + '<span class="lb-score">' + entry.score + '</span>'
+            + '<span class="lb-time">' + entry.time + 's</span>';
+        el.appendChild(row);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BLACK BOX SETTLEMENT (programmatic)
+// ═══════════════════════════════════════════════════════════
+function analyzeBlackBoxLocal() {
+    const t = Math.floor(gameTime);
+    const s = score;
+    const k = sessionStats.kills;
+    const bk = sessionStats.bossKills;
+    const cards = player ? player.cards.size : 0;
+    const noDmg = sessionStats.maxNoDmgTime;
+
+    // Determine rank title
+    let rank, log;
+    if (t < 15) {
+        rank = '信号残片';
+        log = '探测器在启动后不久便坠入了永恒的静默。连迷雾都来不及记住它的存在。';
+    } else if (t < 40) {
+        rank = '微弱回声';
+        log = '短暂的信号脉冲划过数据流，随后被噪音淹没。' + (k > 0 ? '击毁了' + k + '个威胁。' : '未留下战斗记录。');
+    } else if (t < 90) {
+        rank = '迷雾行者';
+        log = '在电磁迷雾中挣扎前行' + t + '秒。' + (k > 10 ? '展现出了一定的战斗本能，' : '') + '最终被黑暗吞噬。得分' + s + '。';
+    } else if (t < 150) {
+        rank = '回声猎人';
+        log = '存活' + t + '秒，击毁' + k + '个目标。' + (bk > 0 ? '成功击溃' + bk + '个高级威胁。' : '未能突破Boss防线。') + (cards > 3 ? '构建了有效的战术组合。' : '');
+    } else if (t < 240) {
+        rank = '脉冲指挥官';
+        log = '在' + t + '秒的漫长战斗中展现出卓越的战术意识。' + k + '次精准打击，' + (bk > 1 ? bk + '个Boss陨落。' : '') + '声纳与火力的交织谱写了壮烈的战歌。';
+    } else if (t < 360) {
+        rank = '霓虹幽灵';
+        log = t + '秒——迷雾中的传说。' + k + '个目标湮灭，' + bk + '个Boss归零。' + (noDmg > 30 ? '曾有' + Math.floor(noDmg) + '秒完美闪避。' : '') + '得分' + s + '，值得铭记。';
+    } else {
+        rank = '虚空行者';
+        log = '超越了一切预期。' + t + '秒的存活记录，' + k + '次歼灭，' + bk + '个Boss。' + (cards >= 8 ? '完整的战术矩阵已构建。' : '') + '你就是迷雾本身。得分' + s + '。';
+    }
+
+    // Achievement bonuses in log
+    const newAch = [];
+    for (const ach of ACHIEVEMENTS) {
+        if (ach.check(sessionStats) && !unlockedAchievements.includes(ach.id)) {
+            // Already handled by checkAchievements, but note for log
+        }
+    }
+    // Count session achievements
+    const sessionAch = ACHIEVEMENTS.filter(a => a.check(sessionStats));
+    if (sessionAch.length > 0) {
+        log += ' [本局达成' + sessionAch.length + '项成就]';
+    }
+
+    $aiRank.textContent = rank.toUpperCase();
+    $aiLog.textContent = '"' + log + '"';
+}
+
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+addEventListener('resize', resize); resize();
+
+const rand = (a, b) => Math.random() * (b - a) + a;
+const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+
+const keys = {};
+const mouse = { x: 0, y: 0, left: false, right: false };
+addEventListener('keydown', e => {
+    // Don't intercept typing in input fields
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    keys[e.code] = true; e.preventDefault();
+});
+addEventListener('keyup', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    keys[e.code] = false;
+});
+addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+addEventListener('mousedown', e => {
+    if (e.button === 0) mouse.left = true;
+    if (e.button === 2) mouse.right = true;
+});
+addEventListener('mouseup', e => {
+    if (e.button === 0) mouse.left = false;
+    if (e.button === 2) mouse.right = false;
+});
+addEventListener('contextmenu', e => e.preventDefault());
+
+const $hud = document.getElementById('hud');
+const $scoreVal = document.getElementById('scoreVal');
+const $bestVal = document.getElementById('bestVal');
+const $hpBar = document.getElementById('hpBar');
+const $eBar = document.getElementById('eBar');
+const $menuStart = document.getElementById('menuStart');
+const $menuOver = document.getElementById('menuOver');
+const $finalScore = document.getElementById('finalScore');
+const $aiBox = document.getElementById('aiBox');
+const $aiRank = document.getElementById('aiRank');
+const $aiLog = document.getElementById('aiLog');
+
+// ── Name input → enable/disable buttons ──
+const $nameInput = document.getElementById('playerNameInput');
+const $btnStart = document.getElementById('btnStart');
+const $btnAch = document.getElementById('btnAchievements');
+const $nameHint = document.getElementById('nameHint');
+
+// All known player names (stored globally)
+let knownPlayers = JSON.parse(localStorage.getItem('neonEchoPlayers') || '[]');
+
+function populateNameHistory() {
+    const dl = document.getElementById('nameHistory');
+    dl.innerHTML = '';
+    for (const name of knownPlayers) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        dl.appendChild(opt);
+    }
+}
+populateNameHistory();
+
+// Flag so we don't use stale pointer-events
+let nameValid = false;
+
+function updateNameState() {
+    const name = $nameInput.value.trim();
+    nameValid = name.length > 0;
+    if (nameValid) {
+        $btnStart.classList.remove('disabled');
+        $btnStart.style.pointerEvents = 'auto';
+        $btnAch.classList.remove('disabled');
+        $btnAch.style.pointerEvents = 'auto';
+        currentPlayerName = name;
+        // Load this player's data
+        unlockedAchievements = JSON.parse(localStorage.getItem('neonEchoAch_' + name) || '[]');
+        best = parseInt(localStorage.getItem('neonEchoBest_' + name)) || 0;
+        $bestVal.textContent = best || '—';
+        const isReturning = knownPlayers.includes(name);
+        if (isReturning) {
+            const achCount = unlockedAchievements.length;
+            $nameHint.textContent = '欢迎回来，' + name + (achCount > 0 ? ' — ' + achCount + '项成就' : '');
+            $nameHint.style.color = '#00f2ff';
+        } else {
+            $nameHint.textContent = '新代号，准备就绪';
+            $nameHint.style.color = '#66ff88';
+        }
+    } else {
+        $btnStart.classList.add('disabled');
+        $btnStart.style.pointerEvents = 'none';
+        $btnAch.classList.add('disabled');
+        $btnAch.style.pointerEvents = 'none';
+        $nameHint.textContent = '输入代号以解锁';
+        $nameHint.style.color = '#555';
+    }
+}
+
+$nameInput.addEventListener('input', updateNameState);
+$nameInput.addEventListener('change', updateNameState);
+// Also handle Enter key to start game
+$nameInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && nameValid) { e.preventDefault(); startGame(); }
+});
+
+// Do NOT pre-fill: start fresh each page load (user picks from datalist)
+$nameInput.value = '';
+currentPlayerName = '';
+updateNameState();
+
+$btnStart.onclick = () => {
+    if (!nameValid) return;
+    startGame();
+};
+document.getElementById('btnRestart').onclick = startGame;
+$btnAch.onclick = () => {
+    if (!nameValid) return;
+    renderAchievePanel();
+    document.getElementById('achievePanel').classList.remove('hidden');
+};
+document.getElementById('btnCloseAchieve').onclick = () => {
+    document.getElementById('achievePanel').classList.add('hidden');
+};
+document.getElementById('btnLeaderboard').onclick = () => {
+    renderLeaderboard('fullLeaderboard');
+    document.getElementById('leaderPanel').classList.remove('hidden');
+};
+document.getElementById('btnCloseLeader').onclick = () => {
+    document.getElementById('leaderPanel').classList.add('hidden');
+};
+
+// ═══════════════════════════════════════════════════════════
+//  GAME STATE
+// ═══════════════════════════════════════════════════════════
+let playing = false;
+let score = 0;
+let best = 0; // loaded per-player
+let gameTime = 0;
+let frameCount = 0;
+let dt = 1/60;
+let lastTime = 0;
+let shakeTimer = 0;
+let damageFlash = 0;
+let pickupFlashColor = '';
+let pickupFlashTimer = 0;
+let playerNoiseRadius = 0;
+let playerNoiseX = 0, playerNoiseY = 0;
+let player, pulses, bullets, enemies, particles, energyOrbs, supplyCrates, pickupTexts;
+let walls = [];
+let cardSelectActive = false;
+let cardCrateTimer = 0;
+let cardCrates = [];
+let achieveCheckTimer = 0;
+
+// ── Card Definitions (12 cards, max Lv.5, diminishing returns) ──
+// Design philosophy:
+//   - 武器流 vs 声纳流 vs 生存流 三条路线
+//   - 每张卡 Lv.1 已经有显著效果, Lv.5 非常强但不破坏游戏
+//   - 能量相关卡牌多且强，保证后期不缺能量
+const CARD_DEFS = [
+    // ── WEAPON (3) ──
+    { id: 'scatter',      name: '散射模块', desc: '射击变为扇形弹幕', rarity: 'common',
+      upgrades: ['3发弹幕', '4发弹幕', '5发弹幕', '6发弹幕', '7发弹幕'] },
+    { id: 'pierce',       name: '穿透弹头', desc: '子弹穿透敌人继续飞行', rarity: 'common',
+      upgrades: ['穿透1个', '穿透2个', '穿透2个+10%伤害', '穿透3个+10%伤害', '穿透3个+20%伤害'] },
+    { id: 'rapidfire',    name: '高速弹匣', desc: '提高射击频率', rarity: 'rare',
+      upgrades: ['+40%射速', '+65%射速', '+80%射速', '+90%射速', '+95%射速'] },
+    // ── SONAR (3) ──
+    { id: 'echo',         name: '回声延长', desc: '声纳标记持续更久', rarity: 'common',
+      upgrades: ['+60%标记', '+100%标记', '+130%标记', '+155%标记', '+175%标记'] },
+    { id: 'doublepulse',  name: '双重脉冲', desc: '一次释放多圈声纳波', rarity: 'rare',
+      upgrades: ['2圈', '2圈+范围', '3圈', '3圈+范围', '3圈+大范围'] },
+    { id: 'sonareff',     name: '声纳减耗', desc: '降低声纳能量消耗', rarity: 'common',
+      upgrades: ['-5消耗', '-9消耗', '-12消耗', '-14消耗', '-15消耗'] },
+    // ── SURVIVAL (3) ──
+    { id: 'speedchip',    name: '速度芯片', desc: '提高移动速度', rarity: 'common',
+      upgrades: ['+15%', '+27%', '+36%', '+43%', '+48%'] },
+    { id: 'energyharvest',name: '能量回收', desc: '击杀敌人回复能量', rarity: 'common',
+      upgrades: ['+8能量', '+14能量', '+18能量', '+21能量', '+23能量'] },
+    { id: 'energyshield', name: '能量护盾', desc: '能量>50%时减少受伤', rarity: 'rare',
+      upgrades: ['15%减伤', '25%减伤', '33%减伤', '38%减伤', '42%减伤'] },
+    // ── ENERGY (3) — 核心解决后期能量问题 ──
+    { id: 'bulleteff',    name: '节能弹匣', desc: '降低射击能量消耗', rarity: 'common',
+      upgrades: ['-2消耗', '-3.5消耗', '-4.5消耗', '-5.2消耗', '-5.7消耗'] },
+    { id: 'quickcharge',  name: '快速充能', desc: '加快能量回复速度', rarity: 'rare',
+      upgrades: ['+40%回复', '+70%回复', '+92%回复', '+108%回复', '+120%回复'] },
+    { id: 'energycore',   name: '能量核心', desc: '提高能量上限和基础回复', rarity: 'epic',
+      upgrades: ['+25上限+1.5/s', '+45上限+2.5/s', '+60上限+3.2/s', '+72上限+3.7/s', '+80上限+4/s'] },
+];
+
+// ═══════════════════════════════════════════════════════════
+//  PLAYER  (100 HP system)
+// ═══════════════════════════════════════════════════════════
+class Player {
+    constructor() {
+        this.x = W / 2; this.y = H / 2;
+        this.radius = 8;
+        this.speed = 4;
+        this.hp = 100; this.maxHp = 100;
+        this.invTimer = 0;
+        this.energy = 100; this.maxEnergy = 100;
+        this.energyRegen = 10;
+        this.sonarCost = 25;
+        this.shootCost = 8;
+        this.shootCooldown = 0;
+        this.shootInterval = 0.25;
+        this.shieldActive = false;
+        this.shieldBreakTimer = 0;
+        this.scoreBonus = 0;
+        this.scoreBonusTimer = 0;
+        this.cards = new Map();         // card_id -> level (stacks infinitely)
+    }
+    cardLv(id) { return this.cards.get(id) || 0; }
+    // Get effective max energy (affected by energycore card)
+    getMaxEnergy() {
+        const lv = this.cardLv('energycore');
+        return this.maxEnergy + Math.round(90 * lv / (lv + 2.5));
+    }
+    update() {
+        if (cardSelectActive) return;
+        if (this.shieldBreakTimer > 0) this.shieldBreakTimer -= dt;
+        if (this.scoreBonusTimer > 0) {
+            this.scoreBonusTimer -= dt;
+            if (frameCount % 6 === 0) score++;
+        }
+
+        // ── Card effects (Lv.1-5, diminishing returns: val = max * lv/(lv+k)) ──
+        const speedLv = this.cardLv('speedchip');
+        const speedMul = 1 + 0.55 * speedLv / (speedLv + 2.5);    // cap ~+48%
+        const chargeLv = this.cardLv('quickcharge');
+        const regenMul = 1 + 1.4 * chargeLv / (chargeLv + 2.5);   // cap ~+120%
+        const coreLv = this.cardLv('energycore');
+        const extraMaxE = Math.round(90 * coreLv / (coreLv + 2.5)); // cap ~+80
+        const extraRegen = 4.5 * coreLv / (coreLv + 2.5);           // cap ~+4/s
+        const effectiveMaxE = this.maxEnergy + extraMaxE;
+
+        let dx = 0, dy = 0;
+        if (keys['KeyW'] || keys['ArrowUp']) dy -= 1;
+        if (keys['KeyS'] || keys['ArrowDown']) dy += 1;
+        if (keys['KeyA'] || keys['ArrowLeft']) dx -= 1;
+        if (keys['KeyD'] || keys['ArrowRight']) dx += 1;
+        if (dx || dy) {
+            const len = Math.hypot(dx, dy);
+            dx /= len; dy /= len;
+            this.x += dx * this.speed * speedMul;
+            this.y += dy * this.speed * speedMul;
+            emitNoise(this.x, this.y, 80);
+        }
+        for (const w of walls) {
+            if (w instanceof FragileWall && !w.alive) continue;
+            const push = pushCircleOutOfRect(this.x, this.y, this.radius, w.x, w.y, w.w, w.h);
+            if (push) { this.x = push.x; this.y = push.y; }
+        }
+        this.x = clamp(this.x, this.radius, W - this.radius);
+        this.y = clamp(this.y, this.radius, H - this.radius);
+        this.energy = Math.min(effectiveMaxE, this.energy + (this.energyRegen * regenMul + extraRegen) * dt);
+        if (this.invTimer > 0) this.invTimer -= dt;
+        this.shootCooldown -= dt;
+
+        // Bullet efficiency: diminishing cost reduction (cap ~-5.7)
+        const bulletEffLv = this.cardLv('bulleteff');
+        const costReduce = 6.5 * bulletEffLv / (bulletEffLv + 2.5);
+        const actualShootCost = Math.max(2, this.shootCost - costReduce);
+        if (mouse.left && this.shootCooldown <= 0 && this.energy >= actualShootCost) {
+            this.shoot(actualShootCost);
+        }
+    }
+    shoot(cost) {
+        const angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+        const scatterLv = this.cardLv('scatter');
+        const pierceLv = this.cardLv('pierce');
+        const rapidLv = this.cardLv('rapidfire');
+
+        // Scatter: lv0=1, lv1=3, lv2=4, lv3=5, lv4=6, lv5=7 (hard cap 7)
+        const bulletCount = scatterLv === 0 ? 1 : Math.min(2 + scatterLv, 7);
+        const spreadAngle = scatterLv > 0 ? 0.24 : 0;
+        // Pierce: lv1=1, lv2=2, lv3-5=3 max, but higher levels add +10% damage
+        const pierceCount = Math.min(pierceLv, 3);
+        const pierceDmgBonus = pierceLv > 2 ? 1 + (pierceLv - 2) * 0.1 : 1;
+        for (let i = 0; i < bulletCount; i++) {
+            let a = angle;
+            if (bulletCount > 1) {
+                a = angle - spreadAngle * (bulletCount - 1) / 2 + spreadAngle * i;
+            }
+            const b = new Bullet(this.x, this.y, a, 12, pierceDmgBonus, 'player');
+            b.pierceLeft = pierceCount;
+            bullets.push(b);
+        }
+        if (cost === undefined) cost = this.shootCost;
+        this.energy -= cost;
+        // Rapid fire: diminishing returns (cap ~95% faster = 0.05x interval at Lv.5)
+        const rapidMul = 1 - 0.95 * rapidLv / (rapidLv + 3);  // Lv1=0.76, Lv3=0.52, Lv5=0.41
+        this.shootCooldown = this.shootInterval * Math.max(0.08, rapidMul);
+        emitNoise(this.x, this.y, 200);
+        SFX.shoot();
+    }
+    pulse() {
+        const sonarEffLv = this.cardLv('sonareff');
+        const costReduce = 17 * sonarEffLv / (sonarEffLv + 2.5); // cap ~-15
+        const actualCost = Math.max(8, this.sonarCost - costReduce);
+        if (this.energy >= actualCost) {
+            this.energy -= actualCost;
+            SFX.sonar();
+            pulses.push(new Pulse(this.x, this.y));
+            // Double pulse: Lv1-2 = 2 pulses, Lv3-4 = 3 pulses, Lv5 = 3 pulses
+            // Higher levels also increase pulse range
+            const dpLv = this.cardLv('doublepulse');
+            const extraPulses = dpLv >= 3 ? 2 : dpLv >= 1 ? 1 : 0;
+            const rangeBonus = dpLv >= 4 ? 60 : dpLv >= 2 ? 30 : 0;
+            for (let i = 1; i <= extraPulses; i++) {
+                const delay = i * 280;
+                setTimeout(() => {
+                    if (playing) {
+                        const p = new Pulse(this.x, this.y);
+                        p.maxRadius += rangeBonus;
+                        pulses.push(p);
+                    }
+                }, delay);
+            }
+            spawnParticles(this.x, this.y, 12, '#00f2ff', 2);
+            emitNoise(this.x, this.y, 350);
+        }
+    }
+    takeDamage(amount) {
+        if (this.invTimer > 0) return;
+        const dmg = amount || 10;
+
+        if (this.shieldActive) {
+            // Shield DETONATION: absorb hit + explode outward
+            this.shieldActive = false;
+            this.shieldBreakTimer = 0.6;
+            this.invTimer = 1.5; // generous invincibility after detonation
+            shakeTimer = 0.15;
+
+            // ── Shield explosion: damage/kill nearby enemies ──
+            const blastRadius = 120;
+            for (const e of enemies) {
+                if (!e.alive) continue;
+                const d = dist(this.x, this.y, e.x, e.y);
+                if (d < blastRadius) {
+                    // Inner zone (< 60px): instant kill (1HP enemies die, others take 3 dmg)
+                    // Outer zone (60-120px): 1 dmg + strong knockback
+                    const inner = d < 60;
+                    const blastDmg = inner ? 3 : 1;
+                    const wasAliveBeforeBlast = e.hp > 0;
+                    e.takeDamage(blastDmg);
+                    if (wasAliveBeforeBlast && e.hp <= 0) sessionStats.shieldKills++;
+                    // Knockback: push enemy away from player
+                    if (e.alive) {
+                        const angle = Math.atan2(e.y - this.y, e.x - this.x);
+                        const pushForce = inner ? 8 : 5;
+                        e.x += Math.cos(angle) * pushForce * 10;
+                        e.y += Math.sin(angle) * pushForce * 10;
+                        e.state = 'search'; // disrupted — lose tracking
+                        e.stateTimer = 0;
+                    }
+                }
+            }
+            // Also destroy enemy bullets in blast radius
+            for (const b of bullets) {
+                if (!b.alive || b.owner !== 'enemy') continue;
+                if (dist(this.x, this.y, b.x, b.y) < blastRadius) {
+                    b.alive = false;
+                    spawnParticles(b.x, b.y, 3, '#66ccff', 2);
+                }
+            }
+
+            // Big visual feedback: blue explosion ring + particles
+            spawnParticles(this.x, this.y, 15, '#66ccff', 5);
+            spawnParticles(this.x, this.y, 6, '#ffffff', 3);
+            // Expanding shock ring (reuse Pulse visual)
+            const shockPulse = new Pulse(this.x, this.y);
+            shockPulse.maxRadius = blastRadius;
+            shockPulse.speed = 12;
+            pulses.push(shockPulse);
+
+            pickupTexts.push({ x: this.x, y: this.y - 25, text: 'SHIELD BLAST!', color: '#66ccff', life: 1.5 });
+            SFX.shieldBreak();
+            return; // no HP lost
+        }
+
+        // Energy shield: reduce damage when energy > 50% of max
+        let finalDmg = dmg;
+        const eshieldLv = this.cardLv('energyshield');
+        if (eshieldLv > 0 && this.energy > this.getMaxEnergy() * 0.5) {
+            const reduction = 0.5 * eshieldLv / (eshieldLv + 2.5); // cap ~42%
+            finalDmg = Math.ceil(dmg * (1 - reduction));
+            spawnParticles(this.x, this.y, 6, '#00aaff', 2);
+        }
+
+        this.hp -= finalDmg;
+        this.invTimer = 0.8;
+        shakeTimer = 0.12;
+        damageFlash = 0.2;
+        spawnParticles(this.x, this.y, 12, '#ff2266', 3);
+        SFX.playerHit();
+        sessionStats.noDmgTimer = 0; // reset no-damage timer
+        if (this.hp <= 0) { this.hp = 0; gameOver(); }
+    }
+    draw() {
+        const blinkOff = this.invTimer > 0 && Math.floor(this.invTimer * 14) % 2 === 0;
+        if (blinkOff) return;
+
+        // Soft ambient light — smooth exponential falloff, no hard edge
+        const r = 160;
+        const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+        g.addColorStop(0, 'rgba(0,242,255,0.13)');
+        g.addColorStop(0.15, 'rgba(0,242,255,0.09)');
+        g.addColorStop(0.35, 'rgba(0,242,255,0.05)');
+        g.addColorStop(0.6, 'rgba(0,242,255,0.02)');
+        g.addColorStop(0.85, 'rgba(0,242,255,0.005)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI * 2); ctx.fill();
+
+        // Player dot
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#00f2ff';
+        ctx.shadowBlur = 15; ctx.shadowColor = '#00f2ff';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Shield visual
+        if (this.shieldActive) {
+            // Prominent glowing shield ring — clearly visible
+            const pulse = 0.6 + Math.sin(performance.now() * 0.005) * 0.15;
+            const shieldR = this.radius + 10;
+            // Outer glow fill
+            const sg = ctx.createRadialGradient(this.x, this.y, shieldR - 4, this.x, this.y, shieldR + 8);
+            sg.addColorStop(0, 'rgba(102,204,255,0)');
+            sg.addColorStop(0.5, 'rgba(102,204,255,' + (pulse * 0.2) + ')');
+            sg.addColorStop(1, 'rgba(102,204,255,0)');
+            ctx.fillStyle = sg;
+            ctx.beginPath(); ctx.arc(this.x, this.y, shieldR + 8, 0, Math.PI * 2); ctx.fill();
+            // Main ring
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, shieldR, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(102,220,255,' + pulse + ')';
+            ctx.lineWidth = 2.5;
+            ctx.shadowBlur = 14; ctx.shadowColor = '#66ddff';
+            ctx.stroke();
+            // Inner thin ring
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, shieldR - 3, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(102,220,255,' + (pulse * 0.35) + ')';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.lineWidth = 1;
+        } else if (this.shieldBreakTimer > 0) {
+            // Shatter animation: flickering fragments expanding outward
+            const t = 1 - this.shieldBreakTimer / 0.6;
+            const fragAlpha = (1 - t) * 0.7;
+            const fragR = this.radius + 7 + t * 20;
+            ctx.strokeStyle = 'rgba(102,204,255,' + fragAlpha + ')';
+            ctx.lineWidth = 1.5;
+            for (let i = 0; i < 6; i++) {
+                const a = (Math.PI * 2 / 6) * i + t * 0.5;
+                const len = 4 + t * 8;
+                const fx = this.x + Math.cos(a) * fragR;
+                const fy = this.y + Math.sin(a) * fragR;
+                ctx.beginPath();
+                ctx.moveTo(fx - Math.cos(a + 0.3) * len, fy - Math.sin(a + 0.3) * len);
+                ctx.lineTo(fx + Math.cos(a + 0.3) * len, fy + Math.sin(a + 0.3) * len);
+                ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+        }
+
+        // Score bonus indicator
+        if (this.scoreBonusTimer > 0) {
+            ctx.fillStyle = '#ffcc00';
+            ctx.font = '8px monospace';
+            ctx.textAlign = 'center';
+            ctx.globalAlpha = 0.7;
+            ctx.fillText('x2', this.x, this.y - this.radius - 10);
+            ctx.globalAlpha = 1;
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PULSE (Sonar)
+// ═══════════════════════════════════════════════════════════
+class Pulse {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.radius = 10;
+        this.speed = 8;
+        this.maxRadius = 350; // tactical local scan, not full-screen
+        this.alive = true;
+    }
+    update() {
+        this.radius += this.speed * dt * 60;
+        if (this.radius >= this.maxRadius) this.alive = false;
+    }
+    draw() {
+        const alpha = 1 - this.radius / this.maxRadius;
+        if (alpha <= 0) return;
+
+        // Main sonar ring
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0,242,255,' + (alpha * 0.45) + ')';
+        ctx.lineWidth = 2;
+        ctx.shadowBlur = 6; ctx.shadowColor = '#00f2ff';
+        ctx.stroke();
+        ctx.shadowBlur = 0; ctx.lineWidth = 1;
+        // Soft glow band (thinner)
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0,242,255,' + (alpha * 0.08) + ')';
+        ctx.lineWidth = 16;
+        ctx.stroke();
+        ctx.lineWidth = 1;
+
+        // ── Sonar shadow: dark cone behind each wall ──
+        for (const w of walls) {
+            if (w instanceof FragileWall && !w.alive) continue;
+            const closestX = clamp(this.x, w.x, w.x + w.w);
+            const closestY = clamp(this.y, w.y, w.y + w.h);
+            const wallDist = dist(this.x, this.y, closestX, closestY);
+            if (this.radius < wallDist - 5) continue; // pulse hasn't reached wall
+
+            // Find silhouette corners (angular extremes from pulse center)
+            const corners = [
+                [w.x, w.y], [w.x + w.w, w.y],
+                [w.x + w.w, w.y + w.h], [w.x, w.y + w.h]
+            ];
+            const wcx = w.x + w.w / 2, wcy = w.y + w.h / 2;
+            const refA = Math.atan2(wcy - this.y, wcx - this.x);
+            let minRA = Infinity, maxRA = -Infinity, c1, c2;
+            for (const [cx, cy] of corners) {
+                let ra = Math.atan2(cy - this.y, cx - this.x) - refA;
+                while (ra > Math.PI) ra -= Math.PI * 2;
+                while (ra < -Math.PI) ra += Math.PI * 2;
+                if (ra < minRA) { minRA = ra; c1 = [cx, cy]; }
+                if (ra > maxRA) { maxRA = ra; c2 = [cx, cy]; }
+            }
+
+            // Project shadow outward from silhouette corners
+            const shadowDist = this.maxRadius + 80;
+            const a1 = Math.atan2(c1[1] - this.y, c1[0] - this.x);
+            const a2 = Math.atan2(c2[1] - this.y, c2[0] - this.x);
+            const f1x = this.x + Math.cos(a1) * shadowDist;
+            const f1y = this.y + Math.sin(a1) * shadowDist;
+            const f2x = this.x + Math.cos(a2) * shadowDist;
+            const f2y = this.y + Math.sin(a2) * shadowDist;
+
+            // Dark shadow cone
+            ctx.fillStyle = 'rgba(5,5,5,' + clamp(alpha * 0.85, 0, 0.55) + ')';
+            ctx.beginPath();
+            ctx.moveTo(c1[0], c1[1]);
+            ctx.lineTo(f1x, f1y);
+            ctx.lineTo(f2x, f2y);
+            ctx.lineTo(c2[0], c2[1]);
+            ctx.closePath();
+            ctx.fill();
+
+            // Subtle edge glow where pulse HITS the wall face
+            if (Math.abs(wallDist - this.radius) < 15) {
+                const hitA = alpha * 0.4;
+                ctx.strokeStyle = 'rgba(0,242,255,' + hitA + ')';
+                ctx.lineWidth = 2;
+                // Just draw the wall border edges that are near the pulse
+                ctx.beginPath();
+                ctx.rect(w.x, w.y, w.w, w.h);
+                ctx.stroke();
+                ctx.lineWidth = 1;
+                ctx.globalAlpha = 1;
+            }
+        }
+    }
+    hitsPoint(px, py) {
+        const d = dist(this.x, this.y, px, py);
+        return d <= this.radius && d >= this.radius - 50;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BULLET
+// ═══════════════════════════════════════════════════════════
+class Bullet {
+    constructor(x, y, angle, speed, damage, owner) {
+        this.x = x; this.y = y;
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+        this.speed = speed;
+        this.damage = damage;
+        this.owner = owner;
+        this.alive = true;
+        this.traveled = 0;
+        this.maxRange = owner === 'player' ? 400 : 600;
+        this.markedTimer = owner === 'player' ? 999 : 0;
+        this.radius = 3;
+        this.color = owner === 'player' ? '#00f2ff' : '#ff4466';
+        this.pierceLeft = 0; // pierce card: how many enemies can pass through
+    }
+    update() {
+        this.x += this.vx * dt * 60;
+        this.y += this.vy * dt * 60;
+        this.traveled += this.speed * dt * 60;
+        if (this.traveled > this.maxRange) this.alive = false;
+        if (this.x < -20 || this.x > W + 20 || this.y < -20 || this.y > H + 20) this.alive = false;
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        // Wall collision: bullets die on solid/fragile wall hit (reflect walls handled separately)
+        for (const w of walls) {
+            if (w instanceof FragileWall && !w.alive) continue;
+            if (w instanceof ReflectWall) continue; // handled in handleCollisions
+            if (this.x >= w.x && this.x <= w.x + w.w && this.y >= w.y && this.y <= w.y + w.h) {
+                this.alive = false; break;
+            }
+        }
+    }
+    draw() {
+        const visible = this.owner === 'player' ? 1 : (this.markedTimer > 0 ? 1 : 0.03);
+        ctx.globalAlpha = visible;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        if (visible > 0.5) { ctx.shadowBlur = 4; ctx.shadowColor = this.color; }
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        if (visible > 0.5) {
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x - this.vx * 0.3, this.y - this.vy * 0.3);
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = visible * 0.5;
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 1;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SUPPLY CRATE (only visible when sonar-lit!)
+// ═══════════════════════════════════════════════════════════
+class SupplyCrate {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.alive = true;
+        this.markedTimer = 0;
+        this.size = 10;
+        // 4 types: hp, energy, shield, data
+        const roll = Math.random();
+        if (roll < 0.25) {
+            this.crateType = 'hp';
+            this.color = '#ff66aa';
+            this.icon = '+';
+        } else if (roll < 0.5) {
+            this.crateType = 'energy';
+            this.color = '#66ffcc';
+            this.icon = 'E';
+        } else if (roll < 0.75) {
+            this.crateType = 'shield';
+            this.color = '#66ccff';
+            this.icon = 'S';
+        } else {
+            this.crateType = 'data';
+            this.color = '#ffcc00';
+            this.icon = 'D';
+        }
+        this.pulsePhase = rand(0, Math.PI * 2);
+        this.hintTimer = 0; // periodic faint hint pulse
+    }
+    update() {
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+
+        // Hint pulse: every 5s, emit a VERY faint visual hint (no sonar needed)
+        // This encourages players to sonar in that direction
+        this.hintTimer += dt;
+
+        // Pickup: player touches a VISIBLE crate
+        if (this.markedTimer > 0 && dist(this.x, this.y, player.x, player.y) < this.size + player.radius + 8) {
+            this.alive = false;
+            SFX.pickup();
+            // BIG particle burst on pickup
+            spawnParticles(this.x, this.y, 10, this.color, 3);
+            spawnParticles(this.x, this.y, 4, '#ffffff', 2);
+            let label = '';
+            switch (this.crateType) {
+                case 'hp':
+                    player.hp = Math.min(player.maxHp, player.hp + 25);
+                    label = 'HP +25';
+                    break;
+                case 'energy':
+                    player.energy = Math.min(player.getMaxEnergy(), player.energy + 40);
+                    label = 'ENERGY +40';
+                    break;
+                case 'shield':
+                    player.shieldActive = true;
+                    player.shieldBreakTimer = 0;
+                    label = 'SHIELD ON!';
+                    break;
+                case 'data':
+                    score += 50;
+                    player.scoreBonusTimer = 5;
+                    label = 'x2 SCORE!';
+                    break;
+            }
+            // Floating pickup text
+            pickupTexts.push({
+                x: this.x, y: this.y - 10,
+                text: label, color: this.color, life: 1.5
+            });
+        }
+    }
+    draw() {
+        // Hint pulse: faint ring every 5 seconds (even without sonar)
+        if (this.hintTimer > 5) {
+            this.hintTimer = 0;
+        }
+        if (this.hintTimer < 0.5 && this.markedTimer <= 0) {
+            const t = this.hintTimer / 0.5;
+            const r = 15 + t * 30;
+            const a = (1 - t) * 0.08;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+            ctx.strokeStyle = this.color.replace(')', ',' + a + ')').replace('rgb', 'rgba');
+            // Fallback for hex colors
+            ctx.globalAlpha = a;
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+            ctx.lineWidth = 1;
+        }
+
+        // Full visibility only when sonar-marked
+        if (this.markedTimer <= 0) return;
+        const vis = clamp(this.markedTimer / 0.5, 0, 1);
+        const pulse = 0.8 + Math.sin(performance.now() * 0.004 + this.pulsePhase) * 0.2;
+        ctx.globalAlpha = vis * pulse;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.shadowBlur = 12; ctx.shadowColor = this.color;
+        const s = this.size;
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 2;
+        // Diamond shape for crates
+        ctx.beginPath();
+        ctx.moveTo(0, -s);
+        ctx.lineTo(s, 0);
+        ctx.lineTo(0, s);
+        ctx.lineTo(-s, 0);
+        ctx.closePath();
+        ctx.stroke();
+        // Icon inside
+        ctx.fillStyle = this.color;
+        ctx.font = 'bold 11px monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(this.icon, 0, 1);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 1;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  WALL SYSTEM
+// ═══════════════════════════════════════════════════════════
+class Wall {
+    constructor(x, y, w, h) {
+        this.x = x; this.y = y; this.w = w; this.h = h;
+        this.glowPhase = rand(0, Math.PI * 2);
+    }
+    draw() {
+        // Dark wall body
+        ctx.fillStyle = 'rgba(20,25,35,0.95)';
+        ctx.fillRect(this.x, this.y, this.w, this.h);
+        // Neon edge glow
+        const g = 0.15 + Math.sin(performance.now() * 0.001 + this.glowPhase) * 0.05;
+        ctx.strokeStyle = 'rgba(0,180,220,' + g + ')';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(this.x + 0.5, this.y + 0.5, this.w - 1, this.h - 1);
+        ctx.lineWidth = 1;
+        // Inner subtle grid lines
+        ctx.strokeStyle = 'rgba(0,120,160,0.06)';
+        for (let gx = this.x + 20; gx < this.x + this.w; gx += 20) {
+            ctx.beginPath(); ctx.moveTo(gx, this.y); ctx.lineTo(gx, this.y + this.h); ctx.stroke();
+        }
+        for (let gy = this.y + 20; gy < this.y + this.h; gy += 20) {
+            ctx.beginPath(); ctx.moveTo(this.x, gy); ctx.lineTo(this.x + this.w, gy); ctx.stroke();
+        }
+    }
+}
+
+// Circle vs AABB collision — push circle out, return new position or null
+function pushCircleOutOfRect(cx, cy, cr, rx, ry, rw, rh) {
+    const closestX = clamp(cx, rx, rx + rw);
+    const closestY = clamp(cy, ry, ry + rh);
+    const dx = cx - closestX;
+    const dy = cy - closestY;
+    const dist2 = dx * dx + dy * dy;
+    if (dist2 < cr * cr) {
+        if (dist2 === 0) {
+            // Circle center inside rect — push to nearest edge
+            const dLeft = cx - rx, dRight = (rx + rw) - cx;
+            const dTop = cy - ry, dBot = (ry + rh) - cy;
+            const minD = Math.min(dLeft, dRight, dTop, dBot);
+            if (minD === dLeft) return { x: rx - cr, y: cy };
+            if (minD === dRight) return { x: rx + rw + cr, y: cy };
+            if (minD === dTop) return { x: cx, y: ry - cr };
+            return { x: cx, y: ry + rh + cr };
+        }
+        const d = Math.sqrt(dist2);
+        const overlap = cr - d;
+        return { x: cx + (dx / d) * overlap, y: cy + (dy / d) * overlap };
+    }
+    return null;
+}
+
+// Point inside any wall?
+function pointInWall(px, py) {
+    for (const w of walls) {
+        if (w instanceof FragileWall && !w.alive) continue;
+        if (px >= w.x && px <= w.x + w.w && py >= w.y && py <= w.y + w.h) return true;
+    }
+    return false;
+}
+
+// Line segment intersects AABB? (for sonar occlusion)
+function lineHitsWall(x1, y1, x2, y2) {
+    for (const w of walls) {
+        if (w instanceof FragileWall && !w.alive) continue;
+        if (lineIntersectsAABB(x1, y1, x2, y2, w.x, w.y, w.w, w.h)) return true;
+    }
+    return false;
+}
+function lineIntersectsAABB(x1, y1, x2, y2, rx, ry, rw, rh) {
+    let tmin = 0, tmax = 1;
+    const dx = x2 - x1, dy = y2 - y1;
+    // X slab
+    if (Math.abs(dx) < 0.0001) {
+        if (x1 < rx || x1 > rx + rw) return false;
+    } else {
+        let t1 = (rx - x1) / dx, t2 = (rx + rw - x1) / dx;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+        if (tmin > tmax) return false;
+    }
+    // Y slab
+    if (Math.abs(dy) < 0.0001) {
+        if (y1 < ry || y1 > ry + rh) return false;
+    } else {
+        let t1 = (ry - y1) / dy, t2 = (ry + rh - y1) / dy;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+        if (tmin > tmax) return false;
+    }
+    return true;
+}
+
+// Generate walls for game phase
+function generateWalls(phase) {
+    walls = [];
+    if (phase < 1) return; // Phase 0: no walls
+    const margin = 100;
+    let solidCount, fragileCount = 0, reflectCount = 0;
+    if (phase === 1) { solidCount = Math.floor(rand(5, 8)); }
+    else if (phase === 2) { solidCount = Math.floor(rand(6, 9)); fragileCount = Math.floor(rand(2, 4)); }
+    else { solidCount = Math.floor(rand(5, 7)); fragileCount = Math.floor(rand(2, 4)); reflectCount = Math.floor(rand(2, 4)); }
+    const totalCount = solidCount + fragileCount + reflectCount;
+    for (let i = 0; i < totalCount; i++) {
+        let tries = 0, placed = false;
+        while (tries < 20 && !placed) {
+            tries++;
+            const horizontal = Math.random() > 0.5;
+            const w = horizontal ? rand(60, 160) : rand(20, 40);
+            const h = horizontal ? rand(20, 40) : rand(60, 160);
+            const x = rand(margin, W - margin - w);
+            const y = rand(margin, H - margin - h);
+            // Don't place too close to player spawn (center)
+            const cx = x + w / 2, cy = y + h / 2;
+            if (dist(cx, cy, W / 2, H / 2) < 150) continue;
+            // Don't overlap existing walls (with gap)
+            let overlap = false;
+            for (const ow of walls) {
+                if (x < ow.x + ow.w + 40 && x + w > ow.x - 40 &&
+                    y < ow.y + ow.h + 40 && y + h > ow.y - 40) {
+                    overlap = true; break;
+                }
+            }
+            if (!overlap) {
+                if (i < solidCount) walls.push(new Wall(x, y, w, h));
+                else if (i < solidCount + fragileCount) walls.push(new FragileWall(x, y, w, h));
+                else walls.push(new ReflectWall(x, y, w, h));
+                placed = true;
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CARD CRATE (triggers card selection)
+// ═══════════════════════════════════════════════════════════
+class CardCrate {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.alive = true;
+        this.markedTimer = 0;
+        this.size = 14;
+        this.color = '#ffaa00';
+        this.hintTimer = 0;
+        this.lifespan = 20; // disappears after 20s
+        this.pulsePhase = rand(0, Math.PI * 2);
+    }
+    update() {
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        this.hintTimer += dt;
+        this.lifespan -= dt;
+        if (this.lifespan <= 0) { this.alive = false; return; }
+        // Pickup: player touches a VISIBLE card crate
+        if (this.markedTimer > 0 && dist(this.x, this.y, player.x, player.y) < this.size + player.radius + 10) {
+            this.alive = false;
+            spawnParticles(this.x, this.y, 12, '#ffaa00', 3);
+            spawnParticles(this.x, this.y, 5, '#ffffff', 2);
+            pickupTexts.push({ x: this.x, y: this.y - 15, text: 'CARD!', color: '#ffaa00', life: 1.5 });
+            showCardSelection();
+        }
+    }
+    draw() {
+        // Hint pulse (stronger than supply crate)
+        if (this.hintTimer > 4) this.hintTimer = 0;
+        if (this.hintTimer < 0.6 && this.markedTimer <= 0) {
+            const t = this.hintTimer / 0.6;
+            const r = 18 + t * 35;
+            ctx.globalAlpha = (1 - t) * 0.12;
+            ctx.strokeStyle = '#ffaa00';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI * 2); ctx.stroke();
+            ctx.globalAlpha = 1; ctx.lineWidth = 1;
+        }
+        if (this.markedTimer <= 0) return;
+        const vis = clamp(this.markedTimer / 0.5, 0, 1);
+        const pulse = 0.8 + Math.sin(performance.now() * 0.005 + this.pulsePhase) * 0.2;
+        ctx.globalAlpha = vis * pulse;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.shadowBlur = 16; ctx.shadowColor = '#ffaa00';
+        const s = this.size;
+        // Octagon shape (special)
+        ctx.strokeStyle = '#ffaa00'; ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        for (let i = 0; i < 8; i++) {
+            const a = (Math.PI * 2 / 8) * i - Math.PI / 8;
+            const px = Math.cos(a) * s, py = Math.sin(a) * s;
+            i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath(); ctx.stroke();
+        // "C" icon
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = 'bold 12px monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('C', 0, 1);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        ctx.globalAlpha = 1; ctx.lineWidth = 1;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CARD SELECTION LOGIC
+// ═══════════════════════════════════════════════════════════
+function rollCards(count) {
+    // Weighted random, skip maxed-out cards (Lv.5)
+    const available = CARD_DEFS.filter(c => player.cardLv(c.id) < 5);
+    if (available.length === 0) return CARD_DEFS.slice(0, count); // all maxed fallback
+    const pool = [];
+    for (const c of available) {
+        const weight = c.rarity === 'common' ? 60 : c.rarity === 'rare' ? 30 : 10;
+        for (let i = 0; i < weight; i++) pool.push(c);
+    }
+    const selected = [];
+    const usedIds = new Set();
+    while (selected.length < count && selected.length < available.length) {
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        if (!usedIds.has(pick.id)) {
+            usedIds.add(pick.id);
+            selected.push(pick);
+        }
+    }
+    return selected;
+}
+
+function showCardSelection() {
+    cardSelectActive = true;
+    const overlay = document.getElementById('cardOverlay');
+    const container = document.getElementById('cardContainer');
+    container.innerHTML = '';
+    const cards = rollCards(3);
+    cards.forEach((card, idx) => {
+        const currentLv = player.cardLv(card.id);
+        const nextLv = currentLv + 1;
+        const upgradeDesc = nextLv <= card.upgrades.length
+            ? card.upgrades[nextLv - 1]
+            : card.upgrades[card.upgrades.length - 1];
+        const div = document.createElement('div');
+        div.className = 'card-item rarity-' + card.rarity;
+        const lvTag = currentLv > 0 ? '<div class="card-level">Lv.' + currentLv + ' → ' + nextLv + '</div>' : '';
+        div.innerHTML = lvTag +
+            '<div class="card-name">' + card.name + '</div>' +
+            '<div class="card-desc">' + card.desc + '</div>' +
+            '<div class="card-desc" style="color:#ffcc00;margin-top:6px;">' + upgradeDesc + '</div>' +
+            '<div class="card-rarity-tag ' + card.rarity + '">' +
+                (card.rarity === 'common' ? '普通' : card.rarity === 'rare' ? '稀有' : '史诗') +
+            '</div>';
+        div.onclick = () => selectCard(card.id);
+        container.appendChild(div);
+    });
+    overlay.classList.remove('hidden');
+}
+
+function selectCard(cardId) {
+    const currentLv = player.cardLv(cardId);
+    if (currentLv >= 5) return; // Lv.5 cap
+    const newLv = currentLv + 1;
+    player.cards.set(cardId, newLv);
+    const card = CARD_DEFS.find(c => c.id === cardId);
+    pickupTexts.push({
+        x: player.x, y: player.y - 25,
+        text: card.name + ' Lv.' + newLv,
+        color: card.rarity === 'epic' ? '#aa44ff' : card.rarity === 'rare' ? '#4488ff' : '#ffffff',
+        life: 2
+    });
+    spawnParticles(player.x, player.y, 8, '#ffcc00', 2);
+    SFX.cardSelect();
+    hideCardSelection();
+}
+
+function hideCardSelection() {
+    cardSelectActive = false;
+    document.getElementById('cardOverlay').classList.add('hidden');
+}
+
+document.getElementById('btnSkipCard').onclick = hideCardSelection;
+
+// ═══════════════════════════════════════════════════════════
+//  ENEMY BASE
+// ═══════════════════════════════════════════════════════════
+const ENEMY_CFG = {
+    drifter:  { hp: 1, speed: 2,   perception: 80,  size: 12, color: '#ff3355', score: 10, contactDmg: 8 },
+    hunter:   { hp: 1, speed: 3,   perception: 180, size: 14, color: '#ff8800', score: 20, contactDmg: 18 },
+    turret:   { hp: 5, speed: 0,   perception: 220, size: 18, color: '#aa44ff', score: 80, bulletDmg: 10 },
+    sniper:   { hp: 2, speed: 0.5, perception: 9999,size: 13, color: '#ff2255', score: 60, bulletDmg: 30 },
+    hive:     { hp: 5, speed: 0,   perception: 0,   size: 22, color: '#33ff66', score: 60, contactDmg: 0 },
+    swarmling:{ hp: 1, speed: 3,   perception: 180, size: 6,  color: '#66ff88', score: 5,  contactDmg: 10 },
+    phantom:  { hp: 3, speed: 2,   perception: 200, size: 14, color: '#bb77ff', score: 40, contactDmg: 12 },
+    drainer:  { hp: 1, speed: 2,   perception: 150, size: 11, color: '#33aaff', score: 30, contactDmg: 0 },
+};
+
+class Enemy {
+    constructor(type, x, y) {
+        this.type = type;
+        this.x = x; this.y = y;
+        this.markedTimer = 0;
+        this.markIntensity = 0;
+        this.alive = true;
+        this.state = 'patrol';
+        this.lastKnownX = 0; this.lastKnownY = 0;
+        this.stateTimer = 0;
+        this.attackCooldown = 0;
+        this.patrolAngle = rand(0, Math.PI * 2);
+        const cfg = ENEMY_CFG[type];
+        this.hp = cfg.hp;
+        this.speed = cfg.speed;
+        this.perceptionRange = cfg.perception;
+        this.size = cfg.size;
+        this.color = cfg.color;
+        this.score = cfg.score;
+        this.contactDmg = cfg.contactDmg || 10;
+    }
+    update() {
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        if (this.markedTimer <= 0) this.markIntensity = 0;
+
+        const dToPlayer = dist(this.x, this.y, player.x, player.y);
+        const hearsPlayer = this.canHearPlayer();
+        // Proximity SENSE: 80px = can feel each other in the dark
+        const sensesPlayer = dToPlayer < 80;
+        const isMarked = this.markedTimer > 0;
+        const hasVision = sensesPlayer || isMarked;
+
+        switch (this.state) {
+            case 'patrol':
+                this.doPatrol();
+                if (hearsPlayer) {
+                    this.state = 'alert';
+                    this.lastKnownX = playerNoiseX;
+                    this.lastKnownY = playerNoiseY;
+                    this.stateTimer = 0;
+                } else if (sensesPlayer) {
+                    this.state = 'alert';
+                    this.lastKnownX = player.x;
+                    this.lastKnownY = player.y;
+                    this.stateTimer = 0;
+                }
+                break;
+            case 'alert':
+                if (sensesPlayer) {
+                    // In proximity: real-time tracking, full speed
+                    this.lastKnownX = player.x;
+                    this.lastKnownY = player.y;
+                    this.stateTimer = 0;
+                    this.doAlertMove(1.0);
+                } else if (isMarked) {
+                    // Sonar-lit: rush toward last known
+                    this.doAlertMove(0.8);
+                    this.stateTimer += dt * 0.5;
+                } else if (hearsPlayer) {
+                    // Can hear but NOT see: slow groping
+                    this.lastKnownX = playerNoiseX;
+                    this.lastKnownY = playerNoiseY;
+                    this.doAlertMove(0.3);
+                    this.stateTimer += dt;
+                } else {
+                    // BLIND: confused wandering
+                    this.patrolAngle += rand(-0.08, 0.08);
+                    this.x += Math.cos(this.patrolAngle) * this.speed * 0.15 * dt * 60;
+                    this.y += Math.sin(this.patrolAngle) * this.speed * 0.15 * dt * 60;
+                    this.stateTimer += dt * 3;
+                }
+                if (this.stateTimer > 2) {
+                    this.state = 'search'; this.stateTimer = 0;
+                }
+                // Contact damage ONLY when enemy has vision (can see you)
+                if (hasVision && dToPlayer < this.size + player.radius + 3) {
+                    player.takeDamage(this.contactDmg);
+                    this.stateTimer = 0;
+                }
+                break;
+            case 'search':
+                this.doSearch();
+                if (hearsPlayer) {
+                    this.state = 'alert';
+                    this.lastKnownX = playerNoiseX;
+                    this.lastKnownY = playerNoiseY;
+                    this.stateTimer = 0;
+                } else if (sensesPlayer) {
+                    this.state = 'alert';
+                    this.lastKnownX = player.x;
+                    this.lastKnownY = player.y;
+                    this.stateTimer = 0;
+                }
+                this.stateTimer += dt;
+                if (this.stateTimer > 4) { this.state = 'patrol'; this.stateTimer = 0; }
+                break;
+        }
+        // Wall collision for enemies
+        for (const w of walls) {
+            if (w instanceof FragileWall && !w.alive) continue;
+            const push = pushCircleOutOfRect(this.x, this.y, this.size * 0.6, w.x, w.y, w.w, w.h);
+            if (push) {
+                this.x = push.x; this.y = push.y;
+                this.patrolAngle += Math.PI * 0.5 + rand(-0.3, 0.3); // bounce off
+            }
+        }
+        // Remove off-screen drifters
+        const margin = 150;
+        if (this.x < -margin || this.x > W + margin || this.y < -margin || this.y > H + margin) {
+            if (this.type === 'drifter') this.alive = false;
+        }
+    }
+    canHearPlayer() {
+        if (playerNoiseRadius <= 0) return false;
+        const d = dist(this.x, this.y, playerNoiseX, playerNoiseY);
+        // Walls block sound propagation
+        if (lineHitsWall(this.x, this.y, playerNoiseX, playerNoiseY)) return false;
+        return d <= Math.min(playerNoiseRadius, this.perceptionRange);
+    }
+    doPatrol() {
+        if (this.type === 'drifter') {
+            this.x += Math.cos(this.patrolAngle) * this.speed * dt * 60;
+            this.y += Math.sin(this.patrolAngle) * this.speed * dt * 60;
+        } else {
+            this.patrolAngle += rand(-0.02, 0.02);
+            this.x += Math.cos(this.patrolAngle) * this.speed * 0.3 * dt * 60;
+            this.y += Math.sin(this.patrolAngle) * this.speed * 0.3 * dt * 60;
+        }
+    }
+    doAlertMove(speedMul) {
+        const angle = Math.atan2(this.lastKnownY - this.y, this.lastKnownX - this.x);
+        this.x += Math.cos(angle) * this.speed * speedMul * dt * 60;
+        this.y += Math.sin(angle) * this.speed * speedMul * dt * 60;
+    }
+    doSearch() {
+        this.patrolAngle += rand(-0.05, 0.05);
+        this.x += Math.cos(this.patrolAngle) * this.speed * 0.4 * dt * 60;
+        this.y += Math.sin(this.patrolAngle) * this.speed * 0.4 * dt * 60;
+    }
+    takeDamage(dmg) {
+        this.hp -= dmg;
+        this.markedTimer = Math.max(this.markedTimer, 0.5);
+        spawnParticles(this.x, this.y, 3, this.color, 2);
+        if (this.hp <= 0) {
+            this.alive = false;
+            score += this.score;
+            spawnParticles(this.x, this.y, 5, this.color, 2);
+            // ALL enemies drop energy (100%)
+            const dropAmt = { drifter: 8, hunter: 15, turret: 18, sniper: 25, hive: 30, swarmling: 3, phantom: 18, drainer: 12 };
+            energyOrbs.push({ x: this.x, y: this.y, life: 10, amount: dropAmt[this.type] || 10 });
+            SFX.hit();
+            sessionStats.kills++;
+            if (this.type === 'hive') sessionStats.hiveKills++;
+            if (this.type === 'phantom') sessionStats.phantomKills++;
+        }
+    }
+    draw() {
+        const dToPlayer = dist(this.x, this.y, player.x, player.y);
+
+        // VISIBILITY: Two-layer system for smooth fog feeling
+        // Inner zone (0-180px): clear visibility, exponential falloff
+        // Outer zone (180-300px): ultra-faint shimmer (you can SENSE something is there)
+        let proximityVis = 0;
+        if (dToPlayer < 180) {
+            const t = dToPlayer / 180;
+            proximityVis = clamp(Math.pow(1 - t, 2) * 0.7, 0, 0.7);
+        } else if (dToPlayer < 300) {
+            // Ghost zone: barely perceptible shadow, flickers
+            const t = (dToPlayer - 180) / 120;
+            const flicker = 0.8 + Math.sin(performance.now() * 0.003 + this.x * 0.1) * 0.2;
+            proximityVis = clamp((1 - t) * 0.06 * flicker, 0, 0.06);
+        }
+
+        const sonarVis = this.markedTimer > 0
+            ? clamp(this.markedTimer / 0.5, 0, 1) * (this.markIntensity || 1)
+            : 0;
+
+        const vis = Math.max(proximityVis, sonarVis, 0.03);
+
+        ctx.globalAlpha = vis;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        // Always use the enemy's own type color (never override to red)
+        const isAggro = this.state === 'alert';
+        ctx.fillStyle = this.color;
+        if (vis > 0.15) {
+            ctx.shadowBlur = vis * (isAggro ? 10 : 6);
+            ctx.shadowColor = this.color; // glow matches type color!
+        }
+
+        // Alert indicator: small pulsing ring in enemy's OWN color
+        if (isAggro && vis > 0.25) {
+            const pulse = 0.3 + Math.sin(performance.now() * 0.008) * 0.15;
+            ctx.strokeStyle = this.color;
+            ctx.globalAlpha = vis * pulse;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(0, 0, this.size + 5, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha = vis;
+            ctx.lineWidth = 1;
+        }
+
+        const s = this.size;
+        switch (this.type) {
+            case 'drifter':
+                ctx.fillRect(-s / 2, -s / 2, s, s);
+                break;
+            case 'hunter':
+                ctx.beginPath();
+                ctx.moveTo(0, -s); ctx.lineTo(s * 0.7, 0);
+                ctx.lineTo(0, s); ctx.lineTo(-s * 0.7, 0);
+                ctx.closePath(); ctx.fill();
+                break;
+            case 'turret':
+                drawPolygon(ctx, 0, 0, s, 6); ctx.fill();
+                break;
+            case 'sniper':
+                ctx.beginPath();
+                ctx.moveTo(0, -s * 1.2); ctx.lineTo(s * 0.4, s * 0.6);
+                ctx.lineTo(-s * 0.4, s * 0.6);
+                ctx.closePath(); ctx.fill();
+                break;
+            case 'hive':
+                // Large circle with inner segments
+                ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#227744'; ctx.lineWidth = 1;
+                for (let i = 0; i < 6; i++) {
+                    const a = (Math.PI * 2 / 6) * i;
+                    ctx.beginPath(); ctx.moveTo(0, 0);
+                    ctx.lineTo(Math.cos(a) * s, Math.sin(a) * s); ctx.stroke();
+                }
+                ctx.lineWidth = 1;
+                break;
+            case 'swarmling':
+                // Tiny diamond
+                ctx.beginPath();
+                ctx.moveTo(0, -s); ctx.lineTo(s * 0.6, 0);
+                ctx.lineTo(0, s); ctx.lineTo(-s * 0.6, 0);
+                ctx.closePath(); ctx.fill();
+                break;
+            case 'phantom':
+                // Wavy circle
+                ctx.beginPath();
+                for (let i = 0; i < 12; i++) {
+                    const a = (Math.PI * 2 / 12) * i;
+                    const wobble = s + Math.sin(performance.now() * 0.005 + i * 1.5) * 3;
+                    const px = Math.cos(a) * wobble, py = Math.sin(a) * wobble;
+                    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+                }
+                ctx.closePath(); ctx.fill();
+                break;
+            case 'drainer':
+                // Swirl shape
+                ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#1166cc'; ctx.lineWidth = 1;
+                const t = performance.now() * 0.003;
+                ctx.beginPath(); ctx.arc(0, 0, s * 0.5, t, t + Math.PI * 1.5); ctx.stroke();
+                ctx.lineWidth = 1;
+                break;
+            default:
+                ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI * 2); ctx.fill();
+        }
+
+        // State indicator
+        if (vis > 0.2) {
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'center';
+            if (this.state === 'search') {
+                ctx.fillStyle = '#ffaa00';
+                ctx.fillText('?', 0, -s - 5);
+            }
+        }
+
+        ctx.restore();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+    }
+}
+
+// Turret — stationary defense tower with visible detection zone
+// ALWAYS shows a faint purple detection ring (220px) — player can see the danger zone
+// When player enters zone → locks on, rapid fire
+// Every 6s: sends signal pulse alerting nearby enemies to player position
+// SONAR JAM: sonar pulse hitting turret → jammed 3s (no shooting, no signals, sparks)
+// On kill → BIG reward (30 HP + 30 energy + 80 score)
+class Turret extends Enemy {
+    constructor(x, y) {
+        super('turret', x, y);
+        this.detectRadius = 220;     // visible detection zone
+        this.attackCooldown = 1.2;
+        this.aimAngle = 0;
+        this.signalTimer = 3;        // first signal after 3s
+        this.signalInterval = 6;
+        this.signalRadius = 0;
+        this.signalActive = false;
+        this.signalLineTimer = 0;    // visual line to player on signal
+        this.signalTargetX = 0;
+        this.signalTargetY = 0;
+        this.jamTimer = 0;           // jammed by sonar
+        this.engaged = false;        // player in zone?
+    }
+    update() {
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        if (this.markedTimer <= 0) this.markIntensity = 0;
+
+        const dToPlayer = dist(this.x, this.y, player.x, player.y);
+        this.engaged = dToPlayer < this.detectRadius;
+
+        // Animate signal pulse ring
+        if (this.signalActive) {
+            this.signalRadius += 5 * dt * 60;
+            if (this.signalRadius > 350) this.signalActive = false;
+        }
+
+        // Jammed: can't do anything, sparks visual
+        if (this.jamTimer > 0) {
+            this.jamTimer -= dt;
+            return;
+        }
+
+        if (this.engaged) {
+            // Player in detection zone → lock on and fire
+            this.state = 'alert';
+            this.aimAngle = Math.atan2(player.y - this.y, player.x - this.x);
+            this.lastKnownX = player.x;
+            this.lastKnownY = player.y;
+
+            this.attackCooldown -= dt;
+            if (this.attackCooldown <= 0) {
+                // Fire with slight inaccuracy
+                const spread = rand(-0.1, 0.1);
+                const b = new Bullet(this.x, this.y, this.aimAngle + spread, 7, 1, 'enemy');
+                b.playerDmg = ENEMY_CFG.turret.bulletDmg;
+                b.markedTimer = 999; // turret bullets always visible
+                b.color = '#cc66ff';  // purple to match turret
+                bullets.push(b);
+                this.attackCooldown = 1.2;
+            }
+
+            // (Signal/report functionality removed — turret is pure combat threat now)
+        } else {
+            this.state = 'patrol';
+            this.attackCooldown = Math.max(this.attackCooldown, 0.5);
+            this.signalTimer = Math.max(this.signalTimer, 2);
+        }
+    }
+    // Sonar jam: called from handleCollisions
+    sonarStun() {
+        this.jamTimer = 3;
+        this.signalActive = false;
+        spawnParticles(this.x, this.y, 6, '#00f2ff', 2);
+    }
+    takeDamage(dmg) {
+        this.hp -= dmg;
+        this.markedTimer = Math.max(this.markedTimer, 0.5);
+        spawnParticles(this.x, this.y, 6, this.color, 2);
+        if (this.hp <= 0) {
+            this.alive = false;
+            score += 80;
+            spawnParticles(this.x, this.y, 12, this.color, 3);
+            spawnParticles(this.x, this.y, 8, '#ffcc00', 2);
+            // BIG reward: HP + energy + energy orb
+            player.hp = Math.min(player.maxHp, player.hp + 30);
+            player.energy = Math.min(player.getMaxEnergy(), player.energy + 30);
+            energyOrbs.push({ x: this.x, y: this.y, life: 12, amount: 25 });
+            // Pickup text
+            if (typeof pickupTexts !== 'undefined') {
+                pickupTexts.push({ x: this.x, y: this.y - 20, text: 'TURRET DOWN!', color: '#ffcc00', life: 2 });
+                pickupTexts.push({ x: this.x, y: this.y, text: 'HP+30  E+30', color: '#aa44ff', life: 1.8 });
+            }
+        }
+    }
+    draw() {
+        // ALWAYS draw detection zone ring (visible in the dark!)
+        // This is the key "fairness" visual — player can see the danger area
+        const zonePulse = 0.12 + Math.sin(performance.now() * 0.002) * 0.04;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.detectRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(170,68,255,' + zonePulse + ')';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 8]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // When engaged: inner glow fill
+        if (this.engaged && this.jamTimer <= 0) {
+            ctx.fillStyle = 'rgba(170,68,255,0.02)';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.detectRadius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Signal pulse ring (visible warning to player)
+        if (this.signalActive) {
+            const alpha = clamp(1 - this.signalRadius / 350, 0, 0.35);
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.signalRadius, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(255,100,255,' + alpha + ')';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.lineWidth = 1;
+        }
+
+        // Signal targeting line: shows turret reporting player position
+        if (this.signalLineTimer > 0) {
+            const t = this.signalLineTimer / 1.2;
+            const blink = Math.sin(performance.now() * 0.02) > 0 ? 1 : 0.3;
+            ctx.strokeStyle = 'rgba(255,100,255,' + (t * 0.4 * blink) + ')';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 6]);
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.signalTargetX, this.signalTargetY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // Pulsing crosshair at player's reported position
+            const cr = 10 + (1 - t) * 5;
+            ctx.strokeStyle = 'rgba(255,100,255,' + (t * 0.35) + ')';
+            ctx.beginPath(); ctx.arc(this.signalTargetX, this.signalTargetY, cr, 0, Math.PI * 2); ctx.stroke();
+            // Small cross
+            ctx.beginPath();
+            ctx.moveTo(this.signalTargetX - 5, this.signalTargetY);
+            ctx.lineTo(this.signalTargetX + 5, this.signalTargetY);
+            ctx.moveTo(this.signalTargetX, this.signalTargetY - 5);
+            ctx.lineTo(this.signalTargetX, this.signalTargetY + 5);
+            ctx.stroke();
+            ctx.lineWidth = 1;
+        }
+
+        // Jammed: sparking effect
+        if (this.jamTimer > 0) {
+            ctx.fillStyle = '#00f2ff';
+            for (let i = 0; i < 4; i++) {
+                ctx.globalAlpha = 0.3 + Math.random() * 0.4;
+                ctx.fillRect(this.x + rand(-12, 12), this.y + rand(-12, 12), 2, 2);
+            }
+            ctx.globalAlpha = 1;
+            // "JAMMED" text
+            ctx.fillStyle = '#00f2ff';
+            ctx.font = '8px monospace';
+            ctx.textAlign = 'center';
+            ctx.globalAlpha = 0.6;
+            ctx.fillText('JAM', this.x, this.y - this.size - 8);
+            ctx.globalAlpha = 1;
+        }
+
+        // Normal enemy draw (hexagon shape)
+        super.draw();
+    }
+    doPatrol() {}
+}
+
+// Sniper — long-range precision shooter with clear warning and multiple counterplay
+// Hears ALL noise globally → locks on → 2.5s visible charge → fires high-damage shot
+// COUNTERPLAY:
+//   1. DODGE: Laser line shows exact aim. Bullet is fast but narrow — sidestep it
+//   2. SONAR HIT: Sonar pulse hitting sniper during charge → stun 1.5s, reset charge
+//   3. SHOOT IT: Bullet hit during charge → flinch + reset charge
+//   4. SILENT MOVE: Laser tracks noise position. Stop making noise + reposition = it misses
+class Sniper extends Enemy {
+    constructor(x, y) {
+        super('sniper', x, y);
+        this.charging = false;
+        this.chargeTimer = 0;
+        this.chargeMax = 2.0;       // seconds to charge
+        this.targetX = 0;
+        this.targetY = 0;
+        this.stunTimer = 0;         // stunned after sonar/bullet hit
+        this.cooldown = 0;          // post-fire cooldown before next charge
+        this.flinching = false;
+    }
+    update() {
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        if (this.markedTimer <= 0) this.markIntensity = 0;
+
+        // Slow drift
+        this.patrolAngle += rand(-0.008, 0.008);
+        this.x += Math.cos(this.patrolAngle) * this.speed * dt * 60;
+        this.y += Math.sin(this.patrolAngle) * this.speed * dt * 60;
+        this.x = clamp(this.x, 40, W - 40);
+        this.y = clamp(this.y, 40, H - 40);
+
+        // Stun recovery
+        if (this.stunTimer > 0) {
+            this.stunTimer -= dt;
+            this.charging = false;
+            this.chargeTimer = 0;
+            return;
+        }
+
+        // Post-fire cooldown
+        if (this.cooldown > 0) {
+            this.cooldown -= dt;
+            return;
+        }
+
+        const hearsPlayer = playerNoiseRadius > 0 && !lineHitsWall(this.x, this.y, playerNoiseX, playerNoiseY);
+
+        if (!this.charging) {
+            // Listen for noise → start charging
+            if (hearsPlayer) {
+                this.charging = true;
+                this.chargeTimer = 0;
+                this.targetX = playerNoiseX;
+                this.targetY = playerNoiseY;
+            }
+        } else {
+            // Charging: track noise (laser follows sound)
+            if (hearsPlayer) {
+                // Track toward noise source — faster as charge progresses
+                // Early charge: slow drift (0.04), late charge: faster lock-on (0.12)
+                const trackSpeed = 0.04 + (this.chargeTimer / this.chargeMax) * 0.08;
+                this.targetX = lerp(this.targetX, playerNoiseX, trackSpeed);
+                this.targetY = lerp(this.targetY, playerNoiseY, trackSpeed);
+            } else {
+                // No noise: aim drifts slowly (inaccurate), rewards silent repositioning
+                this.targetX += rand(-0.5, 0.5);
+                this.targetY += rand(-0.5, 0.5);
+            }
+
+            this.chargeTimer += dt;
+
+            // FIRE when fully charged
+            if (this.chargeTimer >= this.chargeMax) {
+                const angle = Math.atan2(this.targetY - this.y, this.targetX - this.x);
+                const b = new Bullet(this.x, this.y, angle, 18, 2, 'enemy');
+                b.playerDmg = ENEMY_CFG.sniper.bulletDmg;
+                b.color = '#ff4444';
+                b.radius = 4;
+                b.markedTimer = 2; // sniper bullet is ALWAYS visible (tracer)
+                bullets.push(b);
+                spawnParticles(this.x, this.y, 8, '#ff2255', 3);
+                this.charging = false;
+                this.chargeTimer = 0;
+                this.cooldown = 3; // 3s rest after firing
+            }
+        }
+    }
+    // Override takeDamage: getting hit during charge → flinch and reset
+    takeDamage(dmg) {
+        super.takeDamage(dmg);
+        if (this.charging) {
+            this.charging = false;
+            this.chargeTimer = 0;
+            this.stunTimer = 1.0; // 1s stun from bullet hit
+            this.flinching = true;
+            spawnParticles(this.x, this.y, 8, '#ff2255', 2);
+            setTimeout(() => { this.flinching = false; }, 500);
+        }
+    }
+    // Sonar hit → longer stun (called from handleCollisions)
+    sonarStun() {
+        if (this.charging) {
+            this.charging = false;
+            this.chargeTimer = 0;
+            this.stunTimer = 1.5; // 1.5s stun from sonar
+            spawnParticles(this.x, this.y, 12, '#00f2ff', 3);
+        }
+    }
+    draw() {
+        // Laser warning line — visible even without sonar!
+        // This is the primary "fairness" mechanism
+        if (this.charging && this.chargeTimer > 0.3) {
+            const progress = this.chargeTimer / this.chargeMax;
+            // Line opacity and width increase as charge progresses
+            const alpha = 0.1 + progress * 0.5;
+            const width = progress > 0.8 ? 3 : (progress > 0.5 ? 2 : 1);
+
+            // Pulsing at high charge
+            const pulse = progress > 0.7 ? (1 + Math.sin(performance.now() * 0.02) * 0.3) : 1;
+
+            ctx.strokeStyle = 'rgba(255,34,85,' + (alpha * pulse) + ')';
+            ctx.lineWidth = width;
+            ctx.setLineDash(progress > 0.8 ? [] : [6, 6]); // solid line when about to fire
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.targetX, this.targetY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.lineWidth = 1;
+
+            // Crosshair at target
+            if (progress > 0.4) {
+                const cr = 8 + (1 - progress) * 12; // shrinks as charge completes
+                ctx.strokeStyle = 'rgba(255,34,85,' + (alpha * 0.6) + ')';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(this.targetX, this.targetY, cr, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+
+        // Stun visual: sparks
+        if (this.stunTimer > 0) {
+            ctx.fillStyle = '#00f2ff';
+            ctx.globalAlpha = 0.5 + Math.random() * 0.3;
+            for (let i = 0; i < 3; i++) {
+                const ox = rand(-8, 8), oy = rand(-8, 8);
+                ctx.fillRect(this.x + ox - 1, this.y + oy - 1, 2, 2);
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // Normal enemy draw
+        super.draw();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  HIVE — stationary spawner, releases swarmlings
+// ═══════════════════════════════════════════════════════════
+class Hive extends Enemy {
+    constructor(x, y) {
+        super('hive', x, y);
+        this.spawnTimer = 1.5;
+        this.spawnInterval = 1.6;
+        this.pulseAnim = 0;
+    }
+    update() {
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        if (this.markedTimer <= 0) this.markIntensity = 0;
+        // No movement, no perception — just spawns
+        this.spawnTimer -= dt;
+        // Cap swarmlings at 12 total on map
+        const swarmCount = enemies.filter(e => e.type === 'swarmling' && e.alive).length;
+        if (this.spawnTimer <= 0 && swarmCount < 12) {
+            this.spawnTimer = this.spawnInterval;
+            this.pulseAnim = 0.4;
+            const a = rand(0, Math.PI * 2);
+            const sx = this.x + Math.cos(a) * 25;
+            const sy = this.y + Math.sin(a) * 25;
+            const sw = new Enemy('swarmling', sx, sy);
+            sw.state = 'alert';
+            sw.lastKnownX = player.x + rand(-100, 100);
+            sw.lastKnownY = player.y + rand(-100, 100);
+            sw.stateTimer = 0;
+            enemies.push(sw);
+            spawnParticles(sx, sy, 3, '#66ff88', 1.5);
+        } else if (this.spawnTimer <= 0) {
+            this.spawnTimer = 1; // retry soon
+        }
+        if (this.pulseAnim > 0) this.pulseAnim -= dt;
+        // Wall collision
+        for (const w of walls) {
+            if (w instanceof FragileWall && !w.alive) continue;
+            const push = pushCircleOutOfRect(this.x, this.y, this.size * 0.6, w.x, w.y, w.w, w.h);
+            if (push) { this.x = push.x; this.y = push.y; }
+        }
+    }
+    takeDamage(dmg) {
+        super.takeDamage(dmg);
+        if (this.hp <= 0) {
+            // Kill all swarmlings when hive dies
+            for (const e of enemies) {
+                if (e.type === 'swarmling' && e.alive) {
+                    const d = dist(e.x, e.y, this.x, this.y);
+                    if (d < 300) { e.alive = false; spawnParticles(e.x, e.y, 4, '#66ff88', 2); score += 2; }
+                }
+            }
+        }
+    }
+    draw() {
+        // Pulsing spawn indicator
+        if (this.pulseAnim > 0) {
+            const r = this.size + (1 - this.pulseAnim / 0.4) * 15;
+            ctx.globalAlpha = this.pulseAnim;
+            ctx.strokeStyle = '#66ff88'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI * 2); ctx.stroke();
+            ctx.globalAlpha = 1; ctx.lineWidth = 1;
+        }
+        super.draw();
+    }
+    doPatrol() {} // stationary
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PHANTOM — phases through walls, erratic movement
+// ═══════════════════════════════════════════════════════════
+class Phantom extends Enemy {
+    constructor(x, y) {
+        super('phantom', x, y);
+        this.phaseTimer = 0;
+        this.driftAngle = rand(0, Math.PI * 2);
+    }
+    update() {
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        if (this.markedTimer <= 0) this.markIntensity = 0;
+        const dToPlayer = dist(this.x, this.y, player.x, player.y);
+        // Phantom senses THROUGH walls — ignores lineHitsWall
+        const sensesPlayer = dToPlayer < this.perceptionRange;
+        const isMarked = this.markedTimer > 0;
+        this.phaseTimer += dt;
+        if (sensesPlayer || isMarked) {
+            // Erratic pursuit — drifts toward player with random oscillation
+            const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
+            this.driftAngle = lerp(this.driftAngle, toPlayer, 0.04);
+            this.driftAngle += Math.sin(this.phaseTimer * 3) * 0.08;
+            this.x += Math.cos(this.driftAngle) * this.speed * dt * 60;
+            this.y += Math.sin(this.driftAngle) * this.speed * dt * 60;
+            this.state = 'alert';
+            // Contact damage
+            if (dToPlayer < this.size + player.radius + 3) {
+                player.takeDamage(this.contactDmg);
+            }
+        } else {
+            // Random drift
+            this.driftAngle += rand(-0.05, 0.05);
+            this.x += Math.cos(this.driftAngle) * this.speed * 0.3 * dt * 60;
+            this.y += Math.sin(this.driftAngle) * this.speed * 0.3 * dt * 60;
+            this.state = 'patrol';
+        }
+        // Phantom does NOT collide with walls — phases through
+        this.x = clamp(this.x, -50, W + 50);
+        this.y = clamp(this.y, -50, H + 50);
+    }
+    draw() {
+        // Override visibility: Phantom is always ghostly transparent
+        const origDraw = Enemy.prototype.draw;
+        const self = this;
+        // Temporarily boost markedTimer for drawing so it's somewhat visible
+        const savedMark = this.markedTimer;
+        const savedIntensity = this.markIntensity;
+        // Phantom: ghostly flicker effect — always slightly visible
+        const flicker = 0.3 + Math.sin(performance.now() * 0.008 + this.x * 0.05) * 0.15;
+        if (this.markedTimer > 0) {
+            this.markIntensity = (this.markIntensity || 1) * flicker;
+        }
+        super.draw();
+        this.markedTimer = savedMark;
+        this.markIntensity = savedIntensity;
+    }
+    doPatrol() {}
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DRAINER — drains player energy on proximity
+// ═══════════════════════════════════════════════════════════
+class Drainer extends Enemy {
+    constructor(x, y) {
+        super('drainer', x, y);
+        this.drainActive = false;
+    }
+    update() {
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        if (this.markedTimer <= 0) this.markIntensity = 0;
+        const dToPlayer = dist(this.x, this.y, player.x, player.y);
+        const hearsPlayer = this.canHearPlayer();
+        const sensesPlayer = dToPlayer < 80;
+        const isMarked = this.markedTimer > 0;
+        // Drainer is especially attracted to sonar
+        if (hearsPlayer || sensesPlayer || isMarked) {
+            this.state = 'alert';
+            this.lastKnownX = hearsPlayer ? playerNoiseX : player.x;
+            this.lastKnownY = hearsPlayer ? playerNoiseY : player.y;
+            this.doAlertMove(hearsPlayer ? 1.2 : 0.8); // faster when hearing sonar
+        } else {
+            this.state = 'patrol';
+            this.doPatrol();
+        }
+        // Drain energy when close
+        this.drainActive = dToPlayer < 80;
+        if (this.drainActive) {
+            player.energy = Math.max(0, player.energy - 8 * dt); // 8/s drain
+            // Visual: pull energy particles toward drainer
+            if (Math.random() < 0.3) {
+                const a = rand(0, Math.PI * 2);
+                const px = player.x + Math.cos(a) * 15;
+                const py = player.y + Math.sin(a) * 15;
+                particles.push(new Particle(px, py, '#33aaff', 1));
+            }
+        }
+        // Wall collision
+        for (const w of walls) {
+            if (w instanceof FragileWall && !w.alive) continue;
+            const push = pushCircleOutOfRect(this.x, this.y, this.size * 0.6, w.x, w.y, w.w, w.h);
+            if (push) { this.x = push.x; this.y = push.y; this.patrolAngle += Math.PI * 0.5; }
+        }
+        const margin = 150;
+        if (this.x < -margin || this.x > W + margin || this.y < -margin || this.y > H + margin) this.alive = false;
+    }
+    draw() {
+        // Swirl effect when draining
+        if (this.drainActive) {
+            const t = performance.now() * 0.003;
+            ctx.strokeStyle = 'rgba(51,170,255,0.3)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 3; i++) {
+                const a = t + (Math.PI * 2 / 3) * i;
+                const r1 = 20, r2 = 6;
+                ctx.beginPath();
+                ctx.moveTo(this.x + Math.cos(a) * r1, this.y + Math.sin(a) * r1);
+                ctx.lineTo(this.x + Math.cos(a + 0.5) * r2, this.y + Math.sin(a + 0.5) * r2);
+                ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+        }
+        super.draw();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BOSS BASE
+// ═══════════════════════════════════════════════════════════
+let activeBoss = null;
+let bossWarningTimer = 0; // pre-spawn warning
+
+class Boss {
+    constructor(type, hp, x, y) {
+        this.type = type;
+        this.x = x; this.y = y;
+        this.hp = hp; this.maxHp = hp;
+        this.alive = true;
+        this.markedTimer = 0;
+        this.markIntensity = 0;
+        this.size = 30;
+        this.score = 200;
+        this.attackTimer = 0;
+        this.phaseTimer = 0;
+    }
+    takeDamage(dmg) {
+        this.hp -= dmg;
+        this.markedTimer = Math.max(this.markedTimer, 1);
+        spawnParticles(this.x, this.y, 8, '#ffffff', 3);
+        if (this.hp <= 0) {
+            this.alive = false;
+            activeBoss = null;
+            score += this.score;
+            spawnParticles(this.x, this.y, 20, '#ffcc00', 4);
+            spawnParticles(this.x, this.y, 10, '#ffffff', 3);
+            // Boss drop: card crate + HP + energy
+            spawnCardCrate();
+            player.hp = Math.min(player.maxHp, player.hp + 30);
+            player.energy = Math.min(player.getMaxEnergy(), player.energy + 50);
+            energyOrbs.push({ x: this.x, y: this.y, life: 15, amount: 40 });
+            pickupTexts.push({ x: this.x, y: this.y - 30, text: 'BOSS DOWN! +' + this.score, color: '#ffcc00', life: 3 });
+            pickupTexts.push({ x: this.x, y: this.y, text: 'HP+30 ENERGY+50', color: '#66ffcc', life: 2.5 });
+            SFX.bossDead(); SFX.explosion();
+            sessionStats.bossKills++;
+        }
+    }
+    update() {}
+    draw() {}
+    drawHPBar() {
+        const w = 80, h = 5;
+        const pct = this.hp / this.maxHp;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(this.x - w / 2, this.y - this.size - 14, w, h);
+        ctx.fillStyle = pct > 0.5 ? '#ff4466' : '#ff0033';
+        ctx.fillRect(this.x - w / 2, this.y - this.size - 14, w * pct, h);
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.strokeRect(this.x - w / 2, this.y - this.size - 14, w, h);
+    }
+}
+
+// Boss 1: Core Satellite (90s) — rotating octagon with 4 core points
+class BossSatellite extends Boss {
+    constructor() {
+        super('satellite', 12, W / 2 + rand(-100, 100), rand(60, H - 60));
+        this.score = 200;
+        this.size = 35;
+        this.angle = 0;
+        this.attackTimer = 3;
+    }
+    update() {
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        this.phaseTimer += dt;
+        this.angle += 0.8 * dt;
+        // Slow chase
+        const a = Math.atan2(player.y - this.y, player.x - this.x);
+        this.x += Math.cos(a) * 1 * dt * 60;
+        this.y += Math.sin(a) * 1 * dt * 60;
+        this.x = clamp(this.x, 50, W - 50);
+        this.y = clamp(this.y, 50, H - 50);
+        // Cross-pattern bullets every 3s
+        this.attackTimer -= dt;
+        if (this.attackTimer <= 0) {
+            this.attackTimer = 2.8;
+            for (let i = 0; i < 4; i++) {
+                const ba = this.angle + (Math.PI / 2) * i;
+                const b = new Bullet(this.x, this.y, ba, 5, 1, 'enemy');
+                b.playerDmg = 12;
+                b.markedTimer = 999; b.color = '#ff6688'; b.radius = 4;
+                bullets.push(b);
+            }
+            spawnParticles(this.x, this.y, 6, '#ff6688', 2);
+        }
+    }
+    draw() {
+        // Always faintly visible (boss fairness)
+        const sonarVis = this.markedTimer > 0 ? clamp(this.markedTimer / 0.5, 0, 1) : 0;
+        const vis = Math.max(0.15, sonarVis);
+        ctx.globalAlpha = vis;
+        ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+        // Octagon body
+        ctx.strokeStyle = '#ff4466'; ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i < 8; i++) {
+            const a = (Math.PI * 2 / 8) * i;
+            const px = Math.cos(a) * this.size, py = Math.sin(a) * this.size;
+            i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath(); ctx.stroke();
+        // 4 core points
+        for (let i = 0; i < 4; i++) {
+            const a = (Math.PI / 2) * i;
+            const cx = Math.cos(a) * this.size * 0.6, cy = Math.sin(a) * this.size * 0.6;
+            ctx.fillStyle = '#ffcc00';
+            ctx.shadowBlur = 8; ctx.shadowColor = '#ffcc00';
+            ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+        ctx.restore(); ctx.globalAlpha = 1; ctx.lineWidth = 1;
+        this.drawHPBar();
+    }
+}
+
+// Boss 2: Split Mother (180s) — splits into drifters when damaged
+class BossSplitMother extends Boss {
+    constructor() {
+        super('splitmom', 16, rand(100, W - 100), rand(100, H - 100));
+        this.score = 300;
+        this.size = 40;
+        this.attackTimer = 4;
+        this.lastSplitHp = 16; // track hp thresholds for splits
+        this.pathAngle = rand(0, Math.PI * 2);
+    }
+    update() {
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        this.phaseTimer += dt;
+        // Patrol path movement
+        this.pathAngle += rand(-0.02, 0.02);
+        this.x += Math.cos(this.pathAngle) * 2 * dt * 60;
+        this.y += Math.sin(this.pathAngle) * 2 * dt * 60;
+        this.x = clamp(this.x, 60, W - 60); this.y = clamp(this.y, 60, H - 60);
+        if (this.x <= 60 || this.x >= W - 60) this.pathAngle = Math.PI - this.pathAngle;
+        if (this.y <= 60 || this.y >= H - 60) this.pathAngle = -this.pathAngle;
+        // Burst of 8 bullets
+        this.attackTimer -= dt;
+        if (this.attackTimer <= 0) {
+            this.attackTimer = 3.5;
+            for (let i = 0; i < 8; i++) {
+                const ba = (Math.PI * 2 / 8) * i + this.phaseTimer;
+                const b = new Bullet(this.x, this.y, ba, 4.5, 1, 'enemy');
+                b.playerDmg = 10; b.markedTimer = 999; b.color = '#ff4444'; b.radius = 3;
+                bullets.push(b);
+            }
+        }
+    }
+    takeDamage(dmg) {
+        const hpBefore = this.hp;
+        super.takeDamage(dmg);
+        // Split: spawn drifters every 5 HP lost
+        const threshold = 5;
+        if (Math.floor(hpBefore / threshold) > Math.floor(Math.max(this.hp, 0) / threshold)) {
+            for (let i = 0; i < 3; i++) {
+                const a = rand(0, Math.PI * 2);
+                const e = new Enemy('drifter', this.x + Math.cos(a) * 30, this.y + Math.sin(a) * 30);
+                e.state = 'alert'; e.lastKnownX = player.x; e.lastKnownY = player.y;
+                enemies.push(e);
+            }
+            spawnParticles(this.x, this.y, 12, '#ff3355', 3);
+            pickupTexts.push({ x: this.x, y: this.y - 20, text: '分裂!', color: '#ff3355', life: 1 });
+        }
+    }
+    draw() {
+        const sonarVis = this.markedTimer > 0 ? clamp(this.markedTimer / 0.5, 0, 1) : 0;
+        const vis = Math.max(0.15, sonarVis);
+        const pulse = 0.8 + Math.sin(performance.now() * 0.004) * 0.2;
+        ctx.globalAlpha = vis * pulse;
+        ctx.fillStyle = '#ff3355';
+        ctx.shadowBlur = 15; ctx.shadowColor = '#ff3355';
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
+        // Inner pulsing ring
+        ctx.strokeStyle = '#ff6688'; ctx.lineWidth = 2;
+        const inner = this.size * 0.6 + Math.sin(performance.now() * 0.006) * 4;
+        ctx.beginPath(); ctx.arc(this.x, this.y, inner, 0, Math.PI * 2); ctx.stroke();
+        ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.lineWidth = 1;
+        this.drawHPBar();
+    }
+}
+
+// Boss 3: Signal Jammer (270s) — reduces sonar effectiveness nearby
+class BossJammer extends Boss {
+    constructor() {
+        super('jammer', 22, rand(100, W - 100), rand(100, H - 100));
+        this.score = 500;
+        this.size = 38;
+        this.jamRadius = 180;
+        this.attackTimer = 3;
+        this.vertices = [];
+        for (let i = 0; i < 7; i++) {
+            this.vertices.push({ a: (Math.PI * 2 / 7) * i, r: this.size + rand(-8, 8) });
+        }
+    }
+    update() {
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        this.phaseTimer += dt;
+        // Chase player
+        const a = Math.atan2(player.y - this.y, player.x - this.x);
+        this.x += Math.cos(a) * 1.5 * dt * 60;
+        this.y += Math.sin(a) * 1.5 * dt * 60;
+        this.x = clamp(this.x, 50, W - 50); this.y = clamp(this.y, 50, H - 50);
+        // 3-bullet spread toward player
+        this.attackTimer -= dt;
+        if (this.attackTimer <= 0) {
+            this.attackTimer = 2.5;
+            const toP = Math.atan2(player.y - this.y, player.x - this.x);
+            for (let i = -1; i <= 1; i++) {
+                const b = new Bullet(this.x, this.y, toP + i * 0.2, 6, 1, 'enemy');
+                b.playerDmg = 15; b.markedTimer = 999; b.color = '#cccccc'; b.radius = 4;
+                bullets.push(b);
+            }
+        }
+        // Jam aura: reduce mark timer of enemies near this boss (makes sonar less effective)
+        // This is handled in handleCollisions pulse section
+    }
+    draw() {
+        // Jam radius visual — static-filled zone
+        const jamAlpha = 0.04 + Math.sin(performance.now() * 0.003) * 0.02;
+        ctx.fillStyle = 'rgba(200,200,220,' + jamAlpha + ')';
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.jamRadius, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(200,200,220,0.08)';
+        ctx.setLineDash([3, 5]);
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.jamRadius, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        // Body — irregular polygon with static
+        const sonarVis = this.markedTimer > 0 ? clamp(this.markedTimer / 0.5, 0, 1) : 0;
+        const vis = Math.max(0.18, sonarVis);
+        ctx.globalAlpha = vis;
+        ctx.fillStyle = '#ddeeff';
+        ctx.shadowBlur = 12; ctx.shadowColor = '#ffffff';
+        ctx.beginPath();
+        for (let i = 0; i < this.vertices.length; i++) {
+            const v = this.vertices[i];
+            const jitter = Math.sin(performance.now() * 0.01 + i) * 2;
+            const px = this.x + Math.cos(v.a + this.phaseTimer * 0.3) * (v.r + jitter);
+            const py = this.y + Math.sin(v.a + this.phaseTimer * 0.3) * (v.r + jitter);
+            i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath(); ctx.fill();
+        ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+        // Static sparks
+        for (let i = 0; i < 3; i++) {
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = 0.3 + Math.random() * 0.3;
+            ctx.fillRect(this.x + rand(-this.size, this.size), this.y + rand(-this.size, this.size), 2, 2);
+        }
+        ctx.globalAlpha = 1;
+        this.drawHPBar();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  FRAGILE & REFLECTIVE WALLS
+// ═══════════════════════════════════════════════════════════
+class FragileWall extends Wall {
+    constructor(x, y, w, h) {
+        super(x, y, w, h);
+        this.wallHp = 3;
+        this.alive = true;
+    }
+    takeDamage() {
+        this.wallHp--;
+        spawnParticles(this.x + this.w / 2, this.y + this.h / 2, 6, '#aa8866', 2);
+        if (this.wallHp <= 0) {
+            this.alive = false;
+            spawnParticles(this.x + this.w / 2, this.y + this.h / 2, 8, '#aa8866', 2);
+            SFX.explosion();
+            sessionStats.wallsBroken++;
+        }
+    }
+    draw() {
+        if (!this.alive) return;
+        // Cracked texture
+        const crack = 1 - this.wallHp / 3;
+        ctx.fillStyle = 'rgba(40,30,25,' + (0.8 + crack * 0.15) + ')';
+        ctx.fillRect(this.x, this.y, this.w, this.h);
+        ctx.strokeStyle = 'rgba(160,120,80,' + (0.15 + crack * 0.15) + ')';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(this.x + 0.5, this.y + 0.5, this.w - 1, this.h - 1);
+        // Crack lines
+        if (crack > 0) {
+            ctx.strokeStyle = 'rgba(120,90,60,' + (crack * 0.4) + ')';
+            ctx.lineWidth = 1;
+            const cx = this.x + this.w / 2, cy = this.y + this.h / 2;
+            for (let i = 0; i < Math.ceil(crack * 4); i++) {
+                const a = (Math.PI * 2 / 4) * i + 0.3;
+                ctx.beginPath(); ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + Math.cos(a) * this.w * 0.5, cy + Math.sin(a) * this.h * 0.5);
+                ctx.stroke();
+            }
+        }
+        ctx.lineWidth = 1;
+    }
+}
+
+class ReflectWall extends Wall {
+    constructor(x, y, w, h) {
+        super(x, y, w, h);
+    }
+    draw() {
+        // Metallic mirror surface
+        ctx.fillStyle = 'rgba(45,50,60,0.95)';
+        ctx.fillRect(this.x, this.y, this.w, this.h);
+        // Shiny metallic border
+        const shimmer = 0.2 + Math.sin(performance.now() * 0.002 + this.glowPhase) * 0.08;
+        ctx.strokeStyle = 'rgba(180,200,220,' + shimmer + ')';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(this.x + 0.5, this.y + 0.5, this.w - 1, this.h - 1);
+        // Reflective diagonal lines
+        ctx.strokeStyle = 'rgba(160,180,200,0.06)';
+        ctx.lineWidth = 1;
+        for (let d = -this.w; d < this.w + this.h; d += 12) {
+            ctx.beginPath();
+            ctx.moveTo(this.x + d, this.y);
+            ctx.lineTo(this.x + d - this.h, this.y + this.h);
+            ctx.stroke();
+        }
+        ctx.lineWidth = 1;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PARTICLE
+// ═══════════════════════════════════════════════════════════
+class Particle {
+    constructor(x, y, color, speed) {
+        this.x = x; this.y = y; this.color = color;
+        const a = rand(0, Math.PI * 2);
+        this.vx = Math.cos(a) * rand(0.5, speed);
+        this.vy = Math.sin(a) * rand(0.5, speed);
+        this.life = 1;
+        this.decay = rand(0.035, 0.07); // faster fade
+    }
+    update() {
+        this.x += this.vx; this.y += this.vy;
+        this.vx *= 0.97; this.vy *= 0.97;
+        this.life -= this.decay;
+    }
+    draw() {
+        ctx.globalAlpha = this.life;
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x - 1.5, this.y - 1.5, 3, 3);
+        ctx.globalAlpha = 1;
+    }
+}
+function spawnParticles(x, y, count, color, speed) {
+    for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color, speed));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  NOISE & HELPERS
+// ═══════════════════════════════════════════════════════════
+function emitNoise(x, y, radius) {
+    if (radius > playerNoiseRadius) {
+        playerNoiseRadius = radius;
+        playerNoiseX = x; playerNoiseY = y;
+    }
+}
+function drawPolygon(ctx, cx, cy, r, sides) {
+    ctx.beginPath();
+    for (let i = 0; i < sides; i++) {
+        const a = (Math.PI * 2 / sides) * i - Math.PI / 2;
+        const px = cx + Math.cos(a) * r;
+        const py = cy + Math.sin(a) * r;
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SPAWNING
+// ═══════════════════════════════════════════════════════════
+let spawnTimers = {};
+let crateTimer = 0;
+
+function spawnEnemy(type) {
+    const side = Math.floor(rand(0, 4));
+    let x, y;
+    const buf = 60;
+    if (side === 0) { x = rand(0, W); y = -buf; }
+    else if (side === 1) { x = W + buf; y = rand(0, H); }
+    else if (side === 2) { x = rand(0, W); y = H + buf; }
+    else { x = -buf; y = rand(0, H); }
+    const tx = W / 2 + rand(-200, 200);
+    const ty = H / 2 + rand(-200, 200);
+    let e;
+    if (type === 'turret') {
+        e = new Turret(rand(100, W - 100), rand(100, H - 100));
+    } else if (type === 'sniper') {
+        e = new Sniper(rand(80, W - 80), rand(80, H - 80));
+    } else if (type === 'hive') {
+        let hx, hy, tries = 0;
+        do { hx = rand(100, W - 100); hy = rand(100, H - 100); tries++; }
+        while (pointInWall(hx, hy) && tries < 20);
+        e = new Hive(hx, hy);
+    } else if (type === 'phantom') {
+        e = new Phantom(x, y);
+    } else if (type === 'drainer') {
+        e = new Drainer(x, y);
+        e.patrolAngle = Math.atan2(ty - y, tx - x);
+    } else {
+        e = new Enemy(type, x, y);
+        e.patrolAngle = Math.atan2(ty - y, tx - x);
+    }
+    enemies.push(e);
+}
+
+function spawnSupplyCrate() {
+    let x, y, tries = 0;
+    do {
+        x = rand(80, W - 80); y = rand(80, H - 80);
+        tries++;
+    } while (pointInWall(x, y) && tries < 20);
+    supplyCrates.push(new SupplyCrate(x, y));
+}
+
+function spawnCardCrate() {
+    let x, y, tries = 0;
+    do {
+        x = rand(100, W - 100); y = rand(100, H - 100);
+        tries++;
+    } while (pointInWall(x, y) && tries < 20);
+    cardCrates.push(new CardCrate(x, y));
+}
+
+let wallPhase = 0; // track which wall phase we've generated
+
+function updateSpawning() {
+    const t = gameTime;
+    const diffMul = 1 + t / 180; // slower difficulty ramp (was /120)
+
+    // ── Count enemies by type for caps ──
+    const eCounts = {};
+    for (const e of enemies) { eCounts[e.type] = (eCounts[e.type] || 0) + 1; }
+    const totalEnemies = enemies.length;
+
+    // ── Global enemy cap: prevents overwhelming swarms ──
+    const globalCap = Math.min(25 + Math.floor(t / 60) * 5, 50); // 25→30→35→...→50 max
+
+    // ── Wall phase transitions ──
+    if (wallPhase === 0 && t >= 60) {
+        wallPhase = 1;
+        generateWalls(1);
+        pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '⚠ 环境变化：墙体出现', color: '#00b8dc', life: 3 });
+    } else if (wallPhase === 1 && t >= 150) {
+        wallPhase = 2;
+        generateWalls(2);
+        pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '⚠ 地形复杂化', color: '#ff8800', life: 3 });
+    }
+
+    // ── Spawn helpers: respect caps ──
+    const canSpawn = (type, cap) => totalEnemies < globalCap && (eCounts[type] || 0) < cap;
+
+    // Drifters: gentle start, cap 12
+    spawnTimers.drifter = (spawnTimers.drifter || 0) - dt;
+    if (spawnTimers.drifter <= 0 && canSpawn('drifter', 12)) {
+        spawnEnemy('drifter');
+        spawnTimers.drifter = Math.max(1.2, 4.0 / diffMul);
+    } else if (spawnTimers.drifter <= 0) {
+        spawnTimers.drifter = 2; // retry later
+    }
+
+    // Hunters: after 30s, cap 6
+    if (t > 30) {
+        spawnTimers.hunter = (spawnTimers.hunter || 0) - dt;
+        if (spawnTimers.hunter <= 0 && canSpawn('hunter', 6)) {
+            spawnEnemy('hunter');
+            spawnTimers.hunter = Math.max(3, 7 / diffMul);
+        } else if (spawnTimers.hunter <= 0) spawnTimers.hunter = 3;
+    }
+
+    // Turrets: after 60s, cap 3
+    if (t > 60) {
+        spawnTimers.turret = (spawnTimers.turret || 0) - dt;
+        if (spawnTimers.turret <= 0 && canSpawn('turret', 3)) {
+            spawnEnemy('turret');
+            spawnTimers.turret = Math.max(12, 25 / diffMul);
+        } else if (spawnTimers.turret <= 0) spawnTimers.turret = 8;
+    }
+
+    // Snipers: after 100s, cap 2
+    if (t > 100) {
+        spawnTimers.sniper = (spawnTimers.sniper || 0) - dt;
+        if (spawnTimers.sniper <= 0 && canSpawn('sniper', 2)) {
+            spawnEnemy('sniper');
+            spawnTimers.sniper = Math.max(10, 22 / diffMul);
+        } else if (spawnTimers.sniper <= 0) spawnTimers.sniper = 8;
+    }
+
+    // Hives: after 140s, cap 2
+    if (t > 140) {
+        spawnTimers.hive = (spawnTimers.hive || 0) - dt;
+        if (spawnTimers.hive <= 0 && canSpawn('hive', 2)) {
+            spawnEnemy('hive');
+            spawnTimers.hive = Math.max(18, 35 / diffMul);
+        } else if (spawnTimers.hive <= 0) spawnTimers.hive = 12;
+    }
+
+    // Phantoms: after 180s, cap 3
+    if (t > 180) {
+        spawnTimers.phantom = (spawnTimers.phantom || 0) - dt;
+        if (spawnTimers.phantom <= 0 && canSpawn('phantom', 3)) {
+            spawnEnemy('phantom');
+            spawnTimers.phantom = Math.max(8, 18 / diffMul);
+        } else if (spawnTimers.phantom <= 0) spawnTimers.phantom = 6;
+    }
+
+    // Drainers: after 200s, cap 2
+    if (t > 200) {
+        spawnTimers.drainer = (spawnTimers.drainer || 0) - dt;
+        if (spawnTimers.drainer <= 0 && canSpawn('drainer', 2)) {
+            spawnEnemy('drainer');
+            spawnTimers.drainer = Math.max(10, 24 / diffMul);
+        } else if (spawnTimers.drainer <= 0) spawnTimers.drainer = 8;
+    }
+
+    // ── Boss spawning — every 120 seconds (first at 120s) ──
+    if (!activeBoss && bossWarningTimer <= 0 && t >= 118) {
+        const bossInterval = 120;
+        const bossNum = Math.floor(t / bossInterval); // 1 at 90s, 2 at 180s, 3+ at 270s+
+        const nextBossTime = bossNum * bossInterval;
+        if (bossNum >= 1 && t >= nextBossTime && t < nextBossTime + 2) {
+            SFX.bossWarn();
+            if (bossNum === 1) {
+                activeBoss = new BossSatellite();
+                pickupTexts.push({ x: W / 2, y: H / 2 - 60, text: '⚠ BOSS: 核心卫星', color: '#ff4466', life: 3 });
+            } else if (bossNum === 2) {
+                activeBoss = new BossSplitMother();
+                pickupTexts.push({ x: W / 2, y: H / 2 - 60, text: '⚠ BOSS: 分裂母体', color: '#ff3355', life: 3 });
+            } else if (bossNum >= 3) {
+                activeBoss = new BossJammer();
+                pickupTexts.push({ x: W / 2, y: H / 2 - 60, text: '⚠ BOSS: 信号干扰者', color: '#ddeeff', life: 3 });
+            }
+            bossWarningTimer = 5; // prevent re-spawn for 5s
+        }
+    }
+    if (bossWarningTimer > 0) bossWarningTimer -= dt;
+
+    // Wall phase 3: reflective & fragile walls after 240s
+    if (wallPhase === 2 && t >= 240) {
+        wallPhase = 3;
+        generateWalls(3);
+        pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '⚠ 复杂地形：反射墙 + 脆弱墙', color: '#bbddff', life: 3 });
+    }
+
+    // Supply crates: every 8-14 seconds, max 5 on screen
+    crateTimer -= dt;
+    if (crateTimer <= 0 && supplyCrates.length < 5) {
+        spawnSupplyCrate();
+        crateTimer = rand(8, 14);
+    }
+
+    // Card crates: every 20-28 seconds, max 2 on screen
+    cardCrateTimer -= dt;
+    if (cardCrateTimer <= 0 && cardCrates.length < 2) {
+        spawnCardCrate();
+        cardCrateTimer = rand(20, 28);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  COLLISION
+// ═══════════════════════════════════════════════════════════
+function handleCollisions() {
+    // Energy harvest: diminishing per kill (cap ~23)
+    const harvestLv = player.cardLv('energyharvest');
+    const harvestAmt = Math.round(26 * harvestLv / (harvestLv + 2.5));
+    // Echo extend: mark time multiplier (cap ~+175%)
+    const echoLv = player.cardLv('echo');
+    const echoMul = 1 + 2 * echoLv / (echoLv + 2.5);
+
+    // Player bullets vs enemies
+    for (let b of bullets) {
+        if (!b.alive || b.owner !== 'player') continue;
+        for (let e of enemies) {
+            if (!e.alive) continue;
+            if (dist(b.x, b.y, e.x, e.y) < e.size + b.radius) {
+                const wasAlive = e.hp > 0;
+                e.takeDamage(b.damage);
+                spawnParticles(b.x, b.y, 2, '#fff', 2);
+                // Energy harvest: gain energy on kill
+                if (wasAlive && e.hp <= 0 && harvestLv > 0) {
+                    player.energy = Math.min(player.getMaxEnergy(), player.energy + harvestAmt);
+                    spawnParticles(e.x, e.y, 6, '#00ffaa', 2);
+                }
+                // Pierce: bullet continues through enemies
+                if (b.pierceLeft > 0) {
+                    b.pierceLeft--;
+                    b.damage = Math.max(1, b.damage); // keep at least 1 damage
+                } else {
+                    b.alive = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Player bullets vs Boss
+    if (activeBoss && activeBoss.alive) {
+        for (let b of bullets) {
+            if (!b.alive || b.owner !== 'player') continue;
+            if (dist(b.x, b.y, activeBoss.x, activeBoss.y) < activeBoss.size + b.radius) {
+                activeBoss.takeDamage(b.damage);
+                spawnParticles(b.x, b.y, 3, '#ffcc00', 2);
+                if (b.pierceLeft > 0) { b.pierceLeft--; } else { b.alive = false; }
+            }
+        }
+    }
+
+    // Enemy bullets vs player (with per-bullet damage)
+    for (let b of bullets) {
+        if (!b.alive || b.owner !== 'enemy') continue;
+        if (dist(b.x, b.y, player.x, player.y) < player.radius + b.radius) {
+            player.takeDamage(b.playerDmg || 15);
+            b.alive = false;
+        }
+    }
+
+    // Bullets vs walls (fragile walls take damage, reflective walls bounce)
+    for (let b of bullets) {
+        if (!b.alive) continue;
+        for (let w of walls) {
+            if (w instanceof FragileWall) {
+                if (!w.alive) continue;
+                if (b.x > w.x && b.x < w.x + w.w && b.y > w.y && b.y < w.y + w.h) {
+                    if (b.owner === 'player') { w.takeDamage(); }
+                    b.alive = false; break;
+                }
+            } else if (w instanceof ReflectWall) {
+                if (b.x > w.x && b.x < w.x + w.w && b.y > w.y && b.y < w.y + w.h) {
+                    // Determine which face was hit and reflect
+                    const cx = w.x + w.w / 2, cy = w.y + w.h / 2;
+                    const dx = b.x - cx, dy = b.y - cy;
+                    if (Math.abs(dx / w.w) > Math.abs(dy / w.h)) {
+                        b.vx = -b.vx; b.x += b.vx * 2;
+                    } else {
+                        b.vy = -b.vy; b.y += b.vy * 2;
+                    }
+                    // Change ownership on reflect — enemy bullets can become player-friendly
+                    if (b.owner === 'enemy') { b.owner = 'player'; b.color = '#00ddff'; b.damage = 1; }
+                    spawnParticles(b.x, b.y, 4, '#bbddff', 2);
+                }
+            }
+            // Normal walls already handled in Bullet.update() with pointInWall
+        }
+    }
+
+    // NOTE: Enemy contact damage is handled inside each enemy's update()
+
+    // Pulse -> mark enemies, bullets, supply crates, AND card crates
+    // Jammer debuff: halve mark time if near jammer boss
+    const jammerActive = activeBoss && activeBoss.alive && activeBoss.type === 'jammer';
+    for (let p of pulses) {
+        if (!p.alive) continue;
+        // Sonar vs Boss
+        if (activeBoss && activeBoss.alive && p.hitsPoint(activeBoss.x, activeBoss.y)) {
+            if (!lineHitsWall(p.x, p.y, activeBoss.x, activeBoss.y)) {
+                const d = dist(p.x, p.y, activeBoss.x, activeBoss.y);
+                const ratio = 1 - clamp(d / p.maxRadius, 0, 1);
+                activeBoss.markedTimer = Math.max(activeBoss.markedTimer, 1.0 + ratio * 2.0);
+            }
+        }
+        for (let e of enemies) {
+            if (!e.alive) continue;
+            if (p.hitsPoint(e.x, e.y)) {
+                // Phantom ignores walls for sonar but still needs to be hit by pulse ring
+                if (e.type !== 'phantom' && lineHitsWall(p.x, p.y, e.x, e.y)) continue;
+                const d = dist(p.x, p.y, e.x, e.y);
+                const ratio = 1 - clamp(d / p.maxRadius, 0, 1);
+                let markTime = (0.4 + ratio * 2.0) * echoMul;
+                // Phantom: shorter mark time (1s)
+                if (e.type === 'phantom') markTime = Math.min(markTime, 1.0);
+                // Jammer debuff: halve if near jammer
+                if (jammerActive && dist(e.x, e.y, activeBoss.x, activeBoss.y) < activeBoss.jamRadius) {
+                    markTime *= 0.5;
+                }
+                e.markedTimer = Math.max(e.markedTimer, markTime);
+                e.markIntensity = Math.max(e.markIntensity || 0, 0.25 + ratio * 0.75);
+                if (e.state === 'patrol' || e.state === 'search') {
+                    e.state = 'alert';
+                    e.lastKnownX = p.x;
+                    e.lastKnownY = p.y;
+                    e.stateTimer = 0;
+                }
+                if (e.sonarStun) e.sonarStun();
+            }
+        }
+        for (let b of bullets) {
+            if (!b.alive || b.owner !== 'enemy') continue;
+            if (p.hitsPoint(b.x, b.y)) {
+                const d = dist(p.x, p.y, b.x, b.y);
+                const ratio = 1 - clamp(d / p.maxRadius, 0, 1);
+                b.markedTimer = Math.max(b.markedTimer, 0.3 + ratio * 1.5);
+            }
+        }
+        // Pulse reveals supply crates
+        for (let c of supplyCrates) {
+            if (!c.alive) continue;
+            if (p.hitsPoint(c.x, c.y)) {
+                if (lineHitsWall(p.x, p.y, c.x, c.y)) continue;
+                const d = dist(p.x, p.y, c.x, c.y);
+                const ratio = 1 - clamp(d / p.maxRadius, 0, 1);
+                c.markedTimer = Math.max(c.markedTimer, 1.5 + ratio * 3.0);
+            }
+        }
+        // Pulse reveals card crates
+        for (let c of cardCrates) {
+            if (!c.alive) continue;
+            if (p.hitsPoint(c.x, c.y)) {
+                if (lineHitsWall(p.x, p.y, c.x, c.y)) continue;
+                const d = dist(p.x, p.y, c.x, c.y);
+                const ratio = 1 - clamp(d / p.maxRadius, 0, 1);
+                c.markedTimer = Math.max(c.markedTimer, 2.0 + ratio * 4.0);
+            }
+        }
+    }
+
+    // Energy orb pickup
+    for (let i = energyOrbs.length - 1; i >= 0; i--) {
+        const orb = energyOrbs[i];
+        orb.life -= dt;
+        if (orb.life <= 0) { energyOrbs.splice(i, 1); continue; }
+        const d = dist(orb.x, orb.y, player.x, player.y);
+        if (d < 60 && d > 0) {
+            const pull = 3 * dt * 60;
+            const ang = Math.atan2(player.y - orb.y, player.x - orb.x);
+            orb.x += Math.cos(ang) * pull;
+            orb.y += Math.sin(ang) * pull;
+        }
+        if (d < 20) {
+            player.energy = Math.min(player.getMaxEnergy(), player.energy + orb.amount);
+            spawnParticles(orb.x, orb.y, 8, '#00aaff', 2);
+            energyOrbs.splice(i, 1);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  HUD
+// ═══════════════════════════════════════════════════════════
+function updateHUD() {
+    $scoreVal.textContent = score;
+    $bestVal.textContent = best;
+
+    // HP bar
+    const hpPct = (player.hp / player.maxHp) * 100;
+    $hpBar.style.width = hpPct + '%';
+    if (hpPct < 30) {
+        $hpBar.style.background = 'linear-gradient(90deg, #ff0033, #ff3355)';
+    } else if (hpPct < 60) {
+        $hpBar.style.background = 'linear-gradient(90deg, #ff6644, #ff8866)';
+    } else {
+        $hpBar.style.background = 'linear-gradient(90deg, #ff2266, #ff6688)';
+    }
+
+    // Shield indicator on HP bar
+    if (player.shieldActive) {
+        $hpBar.style.border = '1px solid rgba(102,204,255,0.8)';
+        $hpBar.style.boxShadow = '0 0 6px rgba(102,204,255,0.5)';
+    } else {
+        $hpBar.style.border = 'none';
+        $hpBar.style.boxShadow = 'none';
+    }
+
+    // Energy bar
+    const pct = (player.energy / player.getMaxEnergy()) * 100;
+    $eBar.style.width = pct + '%';
+    if (player.energy < player.sonarCost) {
+        $eBar.style.background = 'linear-gradient(90deg, #ff0055, #ff4444)';
+        $eBar.style.boxShadow = '0 0 8px #ff0055';
+    } else {
+        $eBar.style.background = 'linear-gradient(90deg, #00f2ff, #00c3ff)';
+        $eBar.style.boxShadow = '0 0 8px #00f2ff';
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════════════
+function loop(now) {
+    if (!playing) return;
+    dt = Math.min((now - lastTime) / 1000, 0.05);
+    lastTime = now;
+
+    // Pause everything except drawing during card selection
+    if (!cardSelectActive) {
+        gameTime += dt;
+        frameCount++;
+        if (frameCount % 6 === 0) score++;
+        playerNoiseRadius = Math.max(0, playerNoiseRadius - 400 * dt);
+        // Track no-damage time
+        sessionStats.noDmgTimer += dt;
+        sessionStats.maxNoDmgTime = Math.max(sessionStats.maxNoDmgTime, sessionStats.noDmgTimer);
+        // Periodic achievement check (every 3s)
+        achieveCheckTimer = (achieveCheckTimer || 0) + dt;
+        if (achieveCheckTimer >= 3) { achieveCheckTimer = 0; checkAchievements(); }
+
+        player.update();
+        updateSpawning();
+        pulses.forEach(p => p.update());
+        bullets.forEach(b => b.update());
+        enemies.forEach(e => e.update());
+        supplyCrates.forEach(c => c.update());
+        cardCrates.forEach(c => c.update());
+        particles.forEach(p => p.update());
+        handleCollisions();
+
+        // Boss update
+        if (activeBoss && activeBoss.alive) activeBoss.update();
+        if (activeBoss && !activeBoss.alive) activeBoss = null;
+
+        pulses = pulses.filter(p => p.alive);
+        bullets = bullets.filter(b => b.alive);
+        enemies = enemies.filter(e => e.alive);
+        supplyCrates = supplyCrates.filter(c => c.alive);
+        cardCrates = cardCrates.filter(c => c.alive);
+        particles = particles.filter(p => p.life > 0);
+        // Remove destroyed fragile walls
+        walls = walls.filter(w => !(w instanceof FragileWall) || w.alive);
+    }
+
+    // Draw
+    ctx.save();
+    if (shakeTimer > 0) {
+        shakeTimer -= dt;
+        ctx.translate(rand(-4, 4), rand(-4, 4));
+    }
+    ctx.fillStyle = 'rgba(5,5,5,0.4)';
+    ctx.fillRect(0, 0, W, H);
+    if (damageFlash > 0) {
+        damageFlash -= dt;
+        ctx.fillStyle = 'rgba(255,0,50,' + (damageFlash * 0.3) + ')';
+        ctx.fillRect(0, 0, W, H);
+    }
+
+    // Walls
+    walls.forEach(w => w.draw());
+
+    // Energy orbs
+    for (const orb of energyOrbs) {
+        const flicker = 0.5 + Math.sin(now * 0.005) * 0.3;
+        ctx.globalAlpha = flicker;
+        ctx.fillStyle = '#00aaff';
+        ctx.shadowBlur = 10; ctx.shadowColor = '#00aaff';
+        ctx.beginPath(); ctx.arc(orb.x, orb.y, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+    }
+
+    supplyCrates.forEach(c => c.draw());
+    cardCrates.forEach(c => c.draw());
+    enemies.forEach(e => e.draw());
+    if (activeBoss && activeBoss.alive) activeBoss.draw();
+    bullets.forEach(b => b.draw());
+    pulses.forEach(p => p.draw());
+    player.draw();
+    particles.forEach(p => p.draw());
+
+    // Boss HP bar at top of screen
+    if (activeBoss && activeBoss.alive) {
+        const bw = 300, bh = 8;
+        const bx = W / 2 - bw / 2, by = 40;
+        const pct = activeBoss.hp / activeBoss.maxHp;
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(bx - 2, by - 2, bw + 4, bh + 4);
+        ctx.fillStyle = pct > 0.5 ? '#ff4466' : pct > 0.25 ? '#ff8800' : '#ff0033';
+        ctx.fillRect(bx, by, bw * pct, bh);
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.strokeRect(bx - 2, by - 2, bw + 4, bh + 4);
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 12px Orbitron, monospace';
+        ctx.textAlign = 'center';
+        const bossNames = { satellite: '核心卫星', splitmom: '分裂母体', jammer: '信号干扰者' };
+        ctx.fillText((bossNames[activeBoss.type] || 'BOSS') + ' HP: ' + activeBoss.hp + '/' + activeBoss.maxHp, W / 2, by - 6);
+        ctx.textAlign = 'left';
+    }
+
+    // Floating pickup text
+    for (let i = pickupTexts.length - 1; i >= 0; i--) {
+        const pt = pickupTexts[i];
+        pt.life -= dt;
+        pt.y -= 30 * dt;
+        if (pt.life <= 0) { pickupTexts.splice(i, 1); continue; }
+        const a = clamp(pt.life / 0.5, 0, 1);
+        ctx.globalAlpha = a;
+        ctx.fillStyle = pt.color;
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 3;
+        ctx.font = 'bold 14px Orbitron, monospace';
+        ctx.textAlign = 'center';
+        ctx.strokeText(pt.text, pt.x, pt.y);
+        ctx.fillText(pt.text, pt.x, pt.y);
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 1;
+    }
+
+    // Card inventory display (top right)
+    if (player.cards.size > 0) {
+        const entries = [...player.cards.entries()];
+        ctx.textAlign = 'right';
+        ctx.font = '10px Orbitron, monospace';
+        for (let i = 0; i < entries.length; i++) {
+            const [id, lv] = entries[i];
+            const card = CARD_DEFS.find(c => c.id === id);
+            if (!card) continue;
+            const yy = 20 + i * 16;
+            const col = card.rarity === 'epic' ? '#aa44ff' : card.rarity === 'rare' ? '#4488ff' : '#888';
+            ctx.fillStyle = col;
+            ctx.globalAlpha = 0.7;
+            ctx.fillText(card.name + ' Lv.' + lv, W - 16, yy);
+        }
+        ctx.globalAlpha = 1;
+        ctx.textAlign = 'left';
+    }
+
+    ctx.restore();
+    updateHUD();
+    requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SONAR INPUT
+// ═══════════════════════════════════════════════════════════
+addEventListener('mousedown', e => {
+    if (!playing || cardSelectActive) return;
+    if (e.button === 2) player.pulse();
+});
+
+// ═══════════════════════════════════════════════════════════
+//  GAME FLOW
+// ═══════════════════════════════════════════════════════════
+function startGame() {
+    ensureAudio();
+    // Save player name + register in known players list
+    // If coming from menu, read input; if from game over, keep current name
+    const inputName = $nameInput.value.trim();
+    if (inputName) currentPlayerName = inputName;
+    if (!currentPlayerName) currentPlayerName = 'UNKNOWN';
+    localStorage.setItem('neonEchoPlayerName', currentPlayerName);
+    $nameInput.value = currentPlayerName; // sync input for next time
+    if (!knownPlayers.includes(currentPlayerName)) {
+        knownPlayers.push(currentPlayerName);
+        localStorage.setItem('neonEchoPlayers', JSON.stringify(knownPlayers));
+        populateNameHistory();
+    }
+    // Load this player's data
+    unlockedAchievements = JSON.parse(localStorage.getItem('neonEchoAch_' + currentPlayerName) || '[]');
+    best = parseInt(localStorage.getItem('neonEchoBest_' + currentPlayerName)) || 0;
+    $bestVal.textContent = best;
+
+    player = new Player();
+    pulses = []; bullets = []; enemies = []; particles = [];
+    energyOrbs = []; supplyCrates = []; pickupTexts = [];
+    cardCrates = []; walls = [];
+    score = 0; gameTime = 0; frameCount = 0;
+    spawnTimers = {}; crateTimer = 5;
+    cardCrateTimer = 18;
+    cardSelectActive = false;
+    wallPhase = 0;
+    activeBoss = null; bossWarningTimer = 0;
+    shakeTimer = 0; damageFlash = 0; pickupFlashTimer = 0;
+    playerNoiseRadius = 0;
+    mouse.x = W / 2; mouse.y = H / 2;
+    resetSessionStats();
+    sessionNewAchievements = [];
+    achieveCheckTimer = 0;
+
+    $menuStart.classList.add('hidden');
+    $menuOver.classList.add('hidden');
+    document.getElementById('cardOverlay').classList.add('hidden');
+    document.getElementById('achievePanel').classList.add('hidden');
+    document.getElementById('leaderPanel').classList.add('hidden');
+    $hud.classList.remove('hidden');
+
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, W, H);
+
+    // Pre-spawn a few drifters + initial supply crates
+    for (let i = 0; i < 5; i++) spawnEnemy('drifter');
+    for (let i = 0; i < 2; i++) spawnSupplyCrate();
+
+    playing = true;
+    lastTime = performance.now();
+    playBGM();
+    requestAnimationFrame(loop);
+}
+
+function gameOver() {
+    playing = false;
+    cardSelectActive = false;
+    activeBoss = null;
+    document.getElementById('cardOverlay').classList.add('hidden');
+    spawnParticles(player.x, player.y, 15, '#fff', 3);
+    SFX.death();
+    // Fade out BGM over 2 seconds then stop
+    fadeBGM(0, 2);
+    setTimeout(() => stopBGM(), 2200);
+    if (score > best) {
+        best = score;
+        localStorage.setItem('neonEchoBest_' + currentPlayerName, best);
+    }
+    // Final achievement check
+    checkAchievements();
+    // Add to leaderboard (only updates if new best for this name)
+    addToLeaderboard(currentPlayerName, score, gameTime);
+    // Render results
+    $finalScore.textContent = score;
+    document.getElementById('finalTime').textContent = Math.floor(gameTime);
+    analyzeBlackBoxLocal();
+    renderLeaderboard('overLeaderboard', currentPlayerName);
+    // Render session achievements
+    const $overAch = document.getElementById('overAchievements');
+    if (sessionNewAchievements.length > 0) {
+        let html = '<div style="font-size:10px;color:#ffcc00;letter-spacing:2px;text-align:center;">— 本局解锁 —</div><div class="over-ach-wrap">';
+        sessionNewAchievements.forEach((ach, i) => {
+            html += '<div class="over-ach-item" style="animation-delay:' + (i * 0.15) + 's"><span class="ach-i">' + ach.icon + '</span>' + ach.name + '<span class="ach-d">' + ach.desc + '</span></div>';
+        });
+        html += '</div>';
+        $overAch.innerHTML = html;
+        SFX.achieve();
+    } else {
+        $overAch.innerHTML = '';
+    }
+    $hud.classList.add('hidden');
+    $menuOver.classList.remove('hidden');
+}
+
+$bestVal.textContent = best || '—';
+</script>
+</body>
+</html>
