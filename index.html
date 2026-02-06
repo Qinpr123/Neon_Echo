@@ -87,12 +87,18 @@
         }
         .info-box {
             background: rgba(255,255,255,0.03);
-            border: 1px solid #333; border-radius: 6px;
-            padding: 20px 28px; max-width: 420px;
-            text-align: left; color: #aaa; font-size: 13px;
-            line-height: 1.8;
+            border: 1px solid #333; border-radius: 8px;
+            padding: 22px 30px; max-width: 460px; width: 90%;
+            text-align: left; color: #aaa; font-size: 12px;
+            line-height: 1.9;
         }
         .info-box .key { color: #00f2ff; font-weight: 700; }
+        .info-box p { font-size: 12px; }
+        .info-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06); }
+        .info-goal {
+            text-align: center; font-size: 12px; color: #ffcc00;
+            letter-spacing: 1px; margin-bottom: 6px;
+        }
         .btn {
             pointer-events: auto;
             background: transparent;
@@ -324,6 +330,44 @@
         <div class="energy-bar-bg"><div class="energy-bar-fill" id="eBar"></div></div>
         <div class="energy-label">SONAR ENERGY</div>
     </div>
+    <button id="btnPause" style="position:fixed;top:12px;right:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:#888;font-family:'Orbitron',sans-serif;font-size:14px;padding:6px 12px;cursor:pointer;border-radius:4px;z-index:90;pointer-events:auto;" onclick="togglePause()">⏸</button>
+</div>
+
+<div id="pauseOverlay" class="menu-bg hidden" style="z-index:95;overflow-y:auto;padding:30px 20px;display:none;flex-direction:column;align-items:center;">
+    <div style="font-family:'Orbitron',sans-serif;font-size:20px;color:#00f2ff;letter-spacing:4px;margin-bottom:16px;">PAUSED</div>
+    <div style="font-size:10px;color:#666;letter-spacing:2px;margin-bottom:10px;">— 操作 —</div>
+    <div style="font-size:12px;color:#aaa;text-align:center;line-height:2;">
+        <span style="color:#00f2ff;">WASD</span> 移动 &nbsp; <span style="color:#00f2ff;">鼠标</span> 瞄准 &nbsp; <span style="color:#00f2ff;">左键</span> 射击 &nbsp; <span style="color:#00f2ff;">右键</span> 声纳 &nbsp; <span style="color:#00f2ff;">空格</span> 暂停
+    </div>
+    <div style="font-size:10px;color:#666;letter-spacing:2px;margin:14px 0 8px;">— 敌人图鉴 —</div>
+    <div id="pauseEnemyGuide" style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;max-width:500px;"></div>
+    <div style="font-size:10px;color:#666;letter-spacing:2px;margin:14px 0 8px;">— Boss —</div>
+    <div id="pauseBossGuide" style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;max-width:500px;"></div>
+    <div style="font-size:10px;color:#666;letter-spacing:2px;margin:14px 0 8px;">— 道具 —</div>
+    <div style="display:flex;justify-content:center;gap:16px;flex-wrap:wrap;max-width:420px;">
+        <div style="text-align:center;">
+            <svg width="24" height="24" viewBox="0 0 24 24"><polygon points="12,1 23,12 12,23 1,12" fill="none" stroke="#ff66aa" stroke-width="1.5"/><text x="12" y="14" text-anchor="middle" font-size="8" font-weight="bold" fill="#ff66aa" font-family="monospace">+</text></svg>
+            <div style="color:#ff66aa;font-size:9px;">回血</div>
+        </div>
+        <div style="text-align:center;">
+            <svg width="24" height="24" viewBox="0 0 24 24"><polygon points="12,1 23,12 12,23 1,12" fill="none" stroke="#66ffcc" stroke-width="1.5"/><text x="12" y="14" text-anchor="middle" font-size="8" font-weight="bold" fill="#66ffcc" font-family="monospace">E</text></svg>
+            <div style="color:#66ffcc;font-size:9px;">能量</div>
+        </div>
+        <div style="text-align:center;">
+            <svg width="24" height="24" viewBox="0 0 24 24"><polygon points="12,1 23,12 12,23 1,12" fill="none" stroke="#66ccff" stroke-width="1.5"/><text x="12" y="14" text-anchor="middle" font-size="8" font-weight="bold" fill="#66ccff" font-family="monospace">S</text></svg>
+            <div style="color:#66ccff;font-size:9px;">护盾</div>
+        </div>
+        <div style="text-align:center;">
+            <svg width="24" height="24" viewBox="0 0 24 24"><polygon points="12,1 23,12 12,23 1,12" fill="none" stroke="#ffcc00" stroke-width="1.5"/><text x="12" y="14" text-anchor="middle" font-size="8" font-weight="bold" fill="#ffcc00" font-family="monospace">D</text></svg>
+            <div style="color:#ffcc00;font-size:9px;">双倍分</div>
+        </div>
+        <div style="text-align:center;">
+            <svg width="24" height="24" viewBox="0 0 24 24"><polygon points="7,1 17,1 23,7 23,17 17,23 7,23 1,17 1,7" fill="none" stroke="#ffaa00" stroke-width="1.5"/><text x="12" y="14.5" text-anchor="middle" font-size="9" font-weight="bold" fill="#ffaa00" font-family="monospace">C</text></svg>
+            <div style="color:#ffaa00;font-size:9px;">芯片箱</div>
+            <div style="color:#997700;font-size:7px;">抽卡提升技能</div>
+        </div>
+    </div>
+    <button class="btn" style="margin-top:18px;font-size:0.7rem;padding:8px 24px;" onclick="togglePause()">继续游戏</button>
 </div>
 
 <div id="cardOverlay" class="card-overlay hidden">
@@ -336,39 +380,49 @@
 <div id="menuStart" class="menu-bg">
     <div class="title">NEON ECHO</div>
     <div class="subtitle">在迷雾中生存</div>
+
+    <!-- 核心说明 -->
     <div class="info-box">
-        <p><span class="key">WASD</span> 移动 &nbsp; <span class="key">鼠标</span> 瞄准 &nbsp; <span class="key">左键</span> 射击 &nbsp; <span class="key">右键</span> 声纳</p>
-        <p style="font-size:12px; margin-top:10px; color:#999;">你只能看到身边极近的区域。<span class="key">声纳</span>可探测远处的敌人和道具，但会<span style="color:#ffaa44;">暴露你的位置</span>。</p>
-        <p style="font-size:12px; color:#999; margin-top:6px;">道具仅在声纳照亮后才可见和拾取：</p>
-        <div style="display:flex; justify-content:center; gap:18px; margin:8px 0 4px; flex-wrap:wrap;">
-            <div style="text-align:center; font-size:10px; color:#888; line-height:1.5;">
-                <svg width="28" height="28" viewBox="0 0 28 28"><polygon points="14,2 26,14 14,26 2,14" fill="none" stroke="#ff66aa" stroke-width="2"/><text x="14" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="#ff66aa" font-family="monospace">+</text></svg>
-                <div style="color:#ff66aa;">回血</div>
+        <div style="font-size:12px; color:#aaa; text-align:center; line-height:2; letter-spacing:1px; padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.08);">
+            <span style="color:#00f2ff; font-weight:700;">WASD</span> 移动 &nbsp;&nbsp;
+            <span style="color:#00f2ff; font-weight:700;">鼠标</span> 瞄准 &nbsp;&nbsp;
+            <span style="color:#00f2ff; font-weight:700;">左键</span> 射击 &nbsp;&nbsp;
+            <span style="color:#00f2ff; font-weight:700;">右键</span> 声纳 &nbsp;&nbsp;
+            <span style="color:#00f2ff; font-weight:700;">空格</span> 暂停
+        </div>
+        <p style="color:#aaa; font-size:12px; line-height:1.9;">你只能看到身边极近的区域。<span style="color:#00f2ff; font-weight:700;">声纳</span>可探测远处的敌人和道具，但会<span style="color:#ffaa44; font-weight:700;">暴露你的位置</span>。击杀敌人获得积分和能量。</p>
+        <p style="color:#999; font-size:12px; margin-top:14px;">道具仅在声纳照亮后才可见和拾取：</p>
+        <div style="display:flex; justify-content:center; gap:24px; flex-wrap:wrap; margin-top:10px;">
+            <div style="text-align:center; line-height:1.5;">
+                <svg width="32" height="32" viewBox="0 0 32 32"><polygon points="16,2 30,16 16,30 2,16" fill="none" stroke="#ff66aa" stroke-width="2"/><text x="16" y="18.5" text-anchor="middle" font-size="10" font-weight="bold" fill="#ff66aa" font-family="monospace">+</text></svg>
+                <div style="color:#ff66aa; font-size:11px;">回血</div>
             </div>
-            <div style="text-align:center; font-size:10px; color:#888; line-height:1.5;">
-                <svg width="28" height="28" viewBox="0 0 28 28"><polygon points="14,2 26,14 14,26 2,14" fill="none" stroke="#66ffcc" stroke-width="2"/><text x="14" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="#66ffcc" font-family="monospace">E</text></svg>
-                <div style="color:#66ffcc;">能量</div>
+            <div style="text-align:center; line-height:1.5;">
+                <svg width="32" height="32" viewBox="0 0 32 32"><polygon points="16,2 30,16 16,30 2,16" fill="none" stroke="#66ffcc" stroke-width="2"/><text x="16" y="18.5" text-anchor="middle" font-size="10" font-weight="bold" fill="#66ffcc" font-family="monospace">E</text></svg>
+                <div style="color:#66ffcc; font-size:11px;">能量</div>
             </div>
-            <div style="text-align:center; font-size:10px; color:#888; line-height:1.5;">
-                <svg width="28" height="28" viewBox="0 0 28 28"><polygon points="14,2 26,14 14,26 2,14" fill="none" stroke="#66ccff" stroke-width="2"/><text x="14" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="#66ccff" font-family="monospace">S</text></svg>
-                <div style="color:#66ccff;">护盾</div>
+            <div style="text-align:center; line-height:1.5;">
+                <svg width="32" height="32" viewBox="0 0 32 32"><polygon points="16,2 30,16 16,30 2,16" fill="none" stroke="#66ccff" stroke-width="2"/><text x="16" y="18.5" text-anchor="middle" font-size="10" font-weight="bold" fill="#66ccff" font-family="monospace">S</text></svg>
+                <div style="color:#66ccff; font-size:11px;">护盾</div>
             </div>
-            <div style="text-align:center; font-size:10px; color:#888; line-height:1.5;">
-                <svg width="28" height="28" viewBox="0 0 28 28"><polygon points="14,2 26,14 14,26 2,14" fill="none" stroke="#ffcc00" stroke-width="2"/><text x="14" y="16" text-anchor="middle" font-size="9" font-weight="bold" fill="#ffcc00" font-family="monospace">D</text></svg>
-                <div style="color:#ffcc00;">双倍分</div>
+            <div style="text-align:center; line-height:1.5;">
+                <svg width="32" height="32" viewBox="0 0 32 32"><polygon points="16,2 30,16 16,30 2,16" fill="none" stroke="#ffcc00" stroke-width="2"/><text x="16" y="18.5" text-anchor="middle" font-size="10" font-weight="bold" fill="#ffcc00" font-family="monospace">D</text></svg>
+                <div style="color:#ffcc00; font-size:11px;">双倍分</div>
             </div>
-            <div style="text-align:center; font-size:10px; color:#888; line-height:1.5;">
-                <svg width="28" height="28" viewBox="0 0 28 28"><polygon points="9,2 19,2 26,9 26,19 19,26 9,26 2,19 2,9" fill="none" stroke="#ffaa00" stroke-width="2"/><text x="14" y="16.5" text-anchor="middle" font-size="10" font-weight="bold" fill="#ffaa00" font-family="monospace">C</text></svg>
-                <div style="color:#ffaa00;">芯片箱</div>
+            <div style="text-align:center; line-height:1.5;">
+                <svg width="32" height="32" viewBox="0 0 32 32"><polygon points="10,2 22,2 30,10 30,22 22,30 10,30 2,22 2,10" fill="none" stroke="#ffaa00" stroke-width="2"/><text x="16" y="19" text-anchor="middle" font-size="11" font-weight="bold" fill="#ffaa00" font-family="monospace">C</text></svg>
+                <div style="color:#ffaa00; font-size:11px;">芯片箱</div>
+                <div style="color:#997700; font-size:8px;">选卡升级技能</div>
             </div>
         </div>
-        <p style="font-size:11px; color:#888; margin-top:4px;">地形会逐步变化：出现<span style="color:#aaa;">墙体</span>遮挡声纳，后期还有<span style="color:#ffaa44;">脆弱墙</span>和<span class="key">反射墙</span>。</p>
-        <p style="font-size:11px; color:#555; margin-top:6px; text-align:center;">活得越久，敌人越强。</p>
+        <p style="color:#999; font-size:12px; margin-top:16px; text-align:left;">地形会逐步变化：出现墙体遮挡声纳，后期还有<span style="color:#ffaa44; font-weight:700;">脆弱墙</span>和<span style="color:#66ccff; font-weight:700;">反射墙</span>。</p>
     </div>
     <div class="name-section">
         <div class="name-label">输入你的代号</div>
-        <input type="text" class="name-input" id="playerNameInput" list="nameHistory" placeholder="AGENT-X" maxlength="12" autocomplete="off">
-        <datalist id="nameHistory"></datalist>
+        <div style="position:relative;width:240px;">
+            <input type="text" class="name-input" id="playerNameInput" placeholder="AGENT-X" maxlength="12" autocomplete="off" style="width:100%;box-sizing:border-box;">
+            <div id="nameDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#0a0a0a;border:1px solid rgba(0,242,255,0.3);border-top:none;border-radius:0 0 4px 4px;max-height:120px;overflow-y:auto;z-index:100;"></div>
+        </div>
         <div class="name-hint" id="nameHint">输入代号以解锁</div>
     </div>
     <button class="btn-start disabled" id="btnStart">▶ 进入迷雾</button>
@@ -418,17 +472,22 @@ const AudioCtx = window.AudioContext || window.webkitAudioContext;
 let audioCtx = null;
 function ensureAudio() { if (!audioCtx) audioCtx = new AudioCtx(); }
 
+let lastShootSfx = 0;
 const SFX = {
     shoot() {
         ensureAudio();
+        // Throttle: max 8 shoot sounds/sec to avoid audio node GC stutter
+        const now = audioCtx.currentTime;
+        if (now - lastShootSfx < 0.12) return;
+        lastShootSfx = now;
         const o = audioCtx.createOscillator();
         const g = audioCtx.createGain();
-        o.type = 'square'; o.frequency.setValueAtTime(800, audioCtx.currentTime);
-        o.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.06);
-        g.gain.setValueAtTime(0.08, audioCtx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.06);
+        o.type = 'square'; o.frequency.setValueAtTime(800, now);
+        o.frequency.exponentialRampToValueAtTime(200, now + 0.06);
+        g.gain.setValueAtTime(0.08, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
         o.connect(g); g.connect(audioCtx.destination);
-        o.start(); o.stop(audioCtx.currentTime + 0.06);
+        o.start(); o.stop(now + 0.06);
     },
     sonar() {
         ensureAudio();
@@ -457,16 +516,24 @@ const SFX = {
         o2.connect(g2); g2.connect(audioCtx.destination);
         o2.start(t + 0.08); o2.stop(t + 0.45);
     },
+    _hitBuf: null,
+    _lastHit: 0,
     hit() {
         ensureAudio();
-        const bufSize = audioCtx.sampleRate * 0.05;
-        const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
-        const d = buf.getChannelData(0);
-        for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
+        const now = audioCtx.currentTime;
+        if (now - this._lastHit < 0.08) return;
+        this._lastHit = now;
+        // Reuse pre-generated noise buffer
+        if (!this._hitBuf) {
+            const bufSize = audioCtx.sampleRate * 0.05;
+            this._hitBuf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+            const d = this._hitBuf.getChannelData(0);
+            for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
+        }
         const src = audioCtx.createBufferSource();
         const g = audioCtx.createGain();
-        src.buffer = buf; g.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+        src.buffer = this._hitBuf; g.gain.setValueAtTime(0.1, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
         src.connect(g); g.connect(audioCtx.destination);
         src.start();
     },
@@ -592,6 +659,7 @@ const SFX = {
 //  BACKGROUND MUSIC
 // ═══════════════════════════════════════════════════════════
 let bgm = null;
+let bgmStopTimeout = null;
 function initBGM() {
     if (bgm) return;
     bgm = new Audio('Perpetual Neon-Hunt.mp3');
@@ -600,6 +668,7 @@ function initBGM() {
 }
 function playBGM() {
     initBGM();
+    bgm.volume = 0.3;
     if (bgm.paused) bgm.play().catch(() => {});
 }
 function stopBGM() {
@@ -810,6 +879,8 @@ addEventListener('keydown', e => {
     // Don't intercept typing in input fields
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
     keys[e.code] = true; e.preventDefault();
+    // Space to toggle pause
+    if (e.code === 'Space' && playing) { togglePause(); }
 });
 addEventListener('keyup', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
@@ -848,15 +919,31 @@ const $nameHint = document.getElementById('nameHint');
 let knownPlayers = JSON.parse(localStorage.getItem('neonEchoPlayers') || '[]');
 
 function populateNameHistory() {
-    const dl = document.getElementById('nameHistory');
-    dl.innerHTML = '';
+    const dd = document.getElementById('nameDropdown');
+    dd.innerHTML = '';
     for (const name of knownPlayers) {
-        const opt = document.createElement('option');
-        opt.value = name;
-        dl.appendChild(opt);
+        const item = document.createElement('div');
+        item.textContent = name;
+        item.style.cssText = 'padding:8px 16px;color:#00f2ff;font-family:Orbitron,sans-serif;font-size:13px;letter-spacing:2px;cursor:pointer;text-align:center;';
+        item.onmouseenter = () => item.style.background = 'rgba(0,242,255,0.1)';
+        item.onmouseleave = () => item.style.background = 'transparent';
+        item.onclick = () => {
+            $nameInput.value = name;
+            dd.style.display = 'none';
+            updateNameState();
+        };
+        dd.appendChild(item);
     }
 }
 populateNameHistory();
+// Show/hide custom dropdown
+const $nameDropdown = document.getElementById('nameDropdown');
+$nameInput.addEventListener('focus', () => {
+    if (knownPlayers.length > 0) $nameDropdown.style.display = 'block';
+});
+$nameInput.addEventListener('blur', () => {
+    setTimeout(() => { $nameDropdown.style.display = 'none'; }, 200);
+});
 
 // Flag so we don't use stale pointer-events
 let nameValid = false;
@@ -944,6 +1031,7 @@ let playerNoiseRadius = 0;
 let playerNoiseX = 0, playerNoiseY = 0;
 let player, pulses, bullets, enemies, particles, energyOrbs, supplyCrates, pickupTexts;
 let walls = [];
+let specialWalls = []; // fragile + reflect walls only (for optimized collision)
 let cardSelectActive = false;
 let cardCrateTimer = 0;
 let cardCrates = [];
@@ -984,6 +1072,9 @@ const CARD_DEFS = [
     { id: 'energycore',   name: '能量核心', desc: '提高能量上限和基础回复', rarity: 'epic',
       upgrades: ['+25上限+1.5/s', '+45上限+2.5/s', '+60上限+3.2/s', '+72上限+3.7/s', '+80上限+4/s'] },
 ];
+// Pre-build id→card lookup for O(1) access
+const CARD_MAP = {};
+for (const c of CARD_DEFS) CARD_MAP[c.id] = c;
 
 // ═══════════════════════════════════════════════════════════
 //  PLAYER  (100 HP system)
@@ -993,7 +1084,7 @@ class Player {
         this.x = W / 2; this.y = H / 2;
         this.radius = 8;
         this.speed = 4;
-        this.hp = 100; this.maxHp = 100;
+        this.hp = 60; this.maxHp = 60;
         this.invTimer = 0;
         this.energy = 100; this.maxEnergy = 100;
         this.energyRegen = 10;
@@ -1023,9 +1114,9 @@ class Player {
 
         // ── Card effects (Lv.1-5, diminishing returns: val = max * lv/(lv+k)) ──
         const speedLv = this.cardLv('speedchip');
-        const speedMul = 1 + 0.55 * speedLv / (speedLv + 2.5);    // cap ~+48%
+        const speedMul = 1 + 0.7 * speedLv / (speedLv + 2);       // cap ~+50%, Lv1=+23%
         const chargeLv = this.cardLv('quickcharge');
-        const regenMul = 1 + 1.4 * chargeLv / (chargeLv + 2.5);   // cap ~+120%
+        const regenMul = 1 + 1.8 * chargeLv / (chargeLv + 2);     // cap ~+150%, Lv1=+60%
         const coreLv = this.cardLv('energycore');
         const extraMaxE = Math.round(90 * coreLv / (coreLv + 2.5)); // cap ~+80
         const extraRegen = 4.5 * coreLv / (coreLv + 2.5);           // cap ~+4/s
@@ -1086,7 +1177,7 @@ class Player {
         if (cost === undefined) cost = this.shootCost;
         this.energy -= cost;
         // Rapid fire: diminishing returns (cap ~95% faster = 0.05x interval at Lv.5)
-        const rapidMul = 1 - 0.95 * rapidLv / (rapidLv + 3);  // Lv1=0.76, Lv3=0.52, Lv5=0.41
+        const rapidMul = 1 - 0.95 * rapidLv / (rapidLv + 2);  // Lv1=0.68, Lv3=0.43, Lv5=0.32
         this.shootCooldown = this.shootInterval * Math.max(0.08, rapidMul);
         emitNoise(this.x, this.y, 200);
         SFX.shoot();
@@ -1213,9 +1304,12 @@ class Player {
         // Player dot
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = '#00f2ff';
-        ctx.shadowBlur = 15; ctx.shadowColor = '#00f2ff';
         ctx.fill();
-        ctx.shadowBlur = 0;
+        // Soft glow layer (no shadowBlur)
+        ctx.globalAlpha = 0.25;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius + 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
 
         // Shield visual
         if (this.shieldActive) {
@@ -1234,7 +1328,6 @@ class Player {
             ctx.arc(this.x, this.y, shieldR, 0, Math.PI * 2);
             ctx.strokeStyle = 'rgba(102,220,255,' + pulse + ')';
             ctx.lineWidth = 2.5;
-            ctx.shadowBlur = 14; ctx.shadowColor = '#66ddff';
             ctx.stroke();
             // Inner thin ring
             ctx.beginPath();
@@ -1242,7 +1335,6 @@ class Player {
             ctx.strokeStyle = 'rgba(102,220,255,' + (pulse * 0.35) + ')';
             ctx.lineWidth = 1;
             ctx.stroke();
-            ctx.shadowBlur = 0;
             ctx.lineWidth = 1;
         } else if (this.shieldBreakTimer > 0) {
             // Shatter animation: flickering fragments expanding outward
@@ -1279,8 +1371,10 @@ class Player {
 // ═══════════════════════════════════════════════════════════
 //  PULSE (Sonar)
 // ═══════════════════════════════════════════════════════════
+let pulseIdCounter = 0;
 class Pulse {
     constructor(x, y) {
+        this.id = ++pulseIdCounter;
         this.x = x; this.y = y;
         this.radius = 10;
         this.speed = 8;
@@ -1299,9 +1393,8 @@ class Pulse {
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(0,242,255,' + (alpha * 0.45) + ')';
         ctx.lineWidth = 2;
-        ctx.shadowBlur = 6; ctx.shadowColor = '#00f2ff';
         ctx.stroke();
-        ctx.shadowBlur = 0; ctx.lineWidth = 1;
+        ctx.lineWidth = 1;
         // Soft glow band (thinner)
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(0,242,255,' + (alpha * 0.08) + ')';
@@ -1309,15 +1402,20 @@ class Pulse {
         ctx.stroke();
         ctx.lineWidth = 1;
 
-        // ── Sonar shadow: dark cone behind each wall ──
+        // ── Sonar shadow: dark cone behind each wall (capped for perf) ──
+        let shadowCount = 0;
+        const maxShadows = 12;
+        const shadowFill = 'rgba(5,5,5,' + clamp(alpha * 0.85, 0, 0.55) + ')';
+        const hitAlpha = alpha * 0.4;
         for (const w of walls) {
+            if (shadowCount >= maxShadows) break;
             if (w instanceof FragileWall && !w.alive) continue;
             const closestX = clamp(this.x, w.x, w.x + w.w);
             const closestY = clamp(this.y, w.y, w.y + w.h);
             const wallDist = dist(this.x, this.y, closestX, closestY);
-            if (this.radius < wallDist - 5) continue; // pulse hasn't reached wall
+            if (this.radius < wallDist - 5) continue;
 
-            // Find silhouette corners (angular extremes from pulse center)
+            shadowCount++;
             const corners = [
                 [w.x, w.y], [w.x + w.w, w.y],
                 [w.x + w.w, w.y + w.h], [w.x, w.y + w.h]
@@ -1333,36 +1431,26 @@ class Pulse {
                 if (ra > maxRA) { maxRA = ra; c2 = [cx, cy]; }
             }
 
-            // Project shadow outward from silhouette corners
             const shadowDist = this.maxRadius + 80;
             const a1 = Math.atan2(c1[1] - this.y, c1[0] - this.x);
             const a2 = Math.atan2(c2[1] - this.y, c2[0] - this.x);
-            const f1x = this.x + Math.cos(a1) * shadowDist;
-            const f1y = this.y + Math.sin(a1) * shadowDist;
-            const f2x = this.x + Math.cos(a2) * shadowDist;
-            const f2y = this.y + Math.sin(a2) * shadowDist;
-
-            // Dark shadow cone
-            ctx.fillStyle = 'rgba(5,5,5,' + clamp(alpha * 0.85, 0, 0.55) + ')';
+            ctx.fillStyle = shadowFill;
             ctx.beginPath();
             ctx.moveTo(c1[0], c1[1]);
-            ctx.lineTo(f1x, f1y);
-            ctx.lineTo(f2x, f2y);
+            ctx.lineTo(this.x + Math.cos(a1) * shadowDist, this.y + Math.sin(a1) * shadowDist);
+            ctx.lineTo(this.x + Math.cos(a2) * shadowDist, this.y + Math.sin(a2) * shadowDist);
             ctx.lineTo(c2[0], c2[1]);
             ctx.closePath();
             ctx.fill();
 
-            // Subtle edge glow where pulse HITS the wall face
-            if (Math.abs(wallDist - this.radius) < 15) {
-                const hitA = alpha * 0.4;
-                ctx.strokeStyle = 'rgba(0,242,255,' + hitA + ')';
+            // Edge glow where pulse hits wall face
+            if (Math.abs(wallDist - this.radius) < 20) {
+                ctx.strokeStyle = 'rgba(0,242,255,' + hitAlpha + ')';
                 ctx.lineWidth = 2;
-                // Just draw the wall border edges that are near the pulse
                 ctx.beginPath();
                 ctx.rect(w.x, w.y, w.w, w.h);
                 ctx.stroke();
                 ctx.lineWidth = 1;
-                ctx.globalAlpha = 1;
             }
         }
     }
@@ -1395,15 +1483,16 @@ class Bullet {
         this.x += this.vx * dt * 60;
         this.y += this.vy * dt * 60;
         this.traveled += this.speed * dt * 60;
-        if (this.traveled > this.maxRange) this.alive = false;
-        if (this.x < -20 || this.x > W + 20 || this.y < -20 || this.y > H + 20) this.alive = false;
+        if (this.traveled > this.maxRange) { this.alive = false; return; }
+        if (this.x < -20 || this.x > W + 20 || this.y < -20 || this.y > H + 20) { this.alive = false; return; }
         if (this.markedTimer > 0) this.markedTimer -= dt;
         // Wall collision: bullets die on solid/fragile wall hit (reflect walls handled separately)
+        const bx = this.x, by = this.y;
         for (const w of walls) {
+            if (w instanceof ReflectWall) continue;
             if (w instanceof FragileWall && !w.alive) continue;
-            if (w instanceof ReflectWall) continue; // handled in handleCollisions
-            if (this.x >= w.x && this.x <= w.x + w.w && this.y >= w.y && this.y <= w.y + w.h) {
-                this.alive = false; break;
+            if (bx >= w.x && bx <= w.x + w.w && by >= w.y && by <= w.y + w.h) {
+                this.alive = false; return;
             }
         }
     }
@@ -1412,9 +1501,7 @@ class Bullet {
         ctx.globalAlpha = visible;
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
-        if (visible > 0.5) { ctx.shadowBlur = 4; ctx.shadowColor = this.color; }
         ctx.fill();
-        ctx.shadowBlur = 0;
         if (visible > 0.5) {
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
@@ -1477,8 +1564,8 @@ class SupplyCrate {
             let label = '';
             switch (this.crateType) {
                 case 'hp':
-                    player.hp = Math.min(player.maxHp, player.hp + 25);
-                    label = 'HP +25';
+                    player.hp = Math.min(player.maxHp, player.hp + 15);
+                    label = 'HP +15';
                     break;
                 case 'energy':
                     player.energy = Math.min(player.getMaxEnergy(), player.energy + 40);
@@ -1530,7 +1617,6 @@ class SupplyCrate {
         ctx.globalAlpha = vis * pulse;
         ctx.save();
         ctx.translate(this.x, this.y);
-        ctx.shadowBlur = 12; ctx.shadowColor = this.color;
         const s = this.size;
         ctx.strokeStyle = this.color;
         ctx.lineWidth = 2;
@@ -1547,7 +1633,6 @@ class SupplyCrate {
         ctx.font = 'bold 11px monospace';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(this.icon, 0, 1);
-        ctx.shadowBlur = 0;
         ctx.restore();
         ctx.globalAlpha = 1;
         ctx.lineWidth = 1;
@@ -1652,6 +1737,7 @@ function lineIntersectsAABB(x1, y1, x2, y2, rx, ry, rw, rh) {
 // Generate walls for game phase
 function generateWalls(phase) {
     walls = [];
+    specialWalls = [];
     if (phase < 1) return; // Phase 0: no walls
     const margin = 100;
     let solidCount, fragileCount = 0, reflectCount = 0;
@@ -1680,9 +1766,12 @@ function generateWalls(phase) {
                 }
             }
             if (!overlap) {
-                if (i < solidCount) walls.push(new Wall(x, y, w, h));
-                else if (i < solidCount + fragileCount) walls.push(new FragileWall(x, y, w, h));
-                else walls.push(new ReflectWall(x, y, w, h));
+                let nw;
+                if (i < solidCount) nw = new Wall(x, y, w, h);
+                else if (i < solidCount + fragileCount) nw = new FragileWall(x, y, w, h);
+                else nw = new ReflectWall(x, y, w, h);
+                walls.push(nw);
+                if (nw instanceof FragileWall || nw instanceof ReflectWall) specialWalls.push(nw);
                 placed = true;
             }
         }
@@ -1708,9 +1797,16 @@ class CardCrate {
         this.hintTimer += dt;
         this.lifespan -= dt;
         if (this.lifespan <= 0) { this.alive = false; return; }
-        // Pickup: player touches a VISIBLE card crate
-        if (this.markedTimer > 0 && dist(this.x, this.y, player.x, player.y) < this.size + player.radius + 10) {
+        // Pickup: player touches a VISIBLE card crate (guard against multi-trigger)
+        if (!this.alive) return;
+        if (this.markedTimer > 0 && !cardSelectActive && dist(this.x, this.y, player.x, player.y) < this.size + player.radius + 10) {
             this.alive = false;
+            // Also kill any other nearby card crates to prevent multi-trigger
+            for (const cc of cardCrates) {
+                if (cc !== this && cc.alive && dist(cc.x, cc.y, player.x, player.y) < 60) {
+                    cc.alive = false;
+                }
+            }
             spawnParticles(this.x, this.y, 12, '#ffaa00', 3);
             spawnParticles(this.x, this.y, 5, '#ffffff', 2);
             pickupTexts.push({ x: this.x, y: this.y - 15, text: 'CARD!', color: '#ffaa00', life: 1.5 });
@@ -1735,7 +1831,6 @@ class CardCrate {
         ctx.globalAlpha = vis * pulse;
         ctx.save();
         ctx.translate(this.x, this.y);
-        ctx.shadowBlur = 16; ctx.shadowColor = '#ffaa00';
         const s = this.size;
         // Octagon shape (special)
         ctx.strokeStyle = '#ffaa00'; ctx.lineWidth = 2.5;
@@ -1751,7 +1846,6 @@ class CardCrate {
         ctx.font = 'bold 12px monospace';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText('C', 0, 1);
-        ctx.shadowBlur = 0;
         ctx.restore();
         ctx.globalAlpha = 1; ctx.lineWidth = 1;
     }
@@ -1837,12 +1931,12 @@ document.getElementById('btnSkipCard').onclick = hideCardSelection;
 //  ENEMY BASE
 // ═══════════════════════════════════════════════════════════
 const ENEMY_CFG = {
-    drifter:  { hp: 1, speed: 2,   perception: 80,  size: 12, color: '#ff3355', score: 10, contactDmg: 8 },
-    hunter:   { hp: 1, speed: 3,   perception: 180, size: 14, color: '#ff8800', score: 20, contactDmg: 18 },
-    turret:   { hp: 5, speed: 0,   perception: 220, size: 18, color: '#aa44ff', score: 80, bulletDmg: 10 },
-    sniper:   { hp: 2, speed: 0.5, perception: 9999,size: 13, color: '#ff2255', score: 60, bulletDmg: 30 },
-    hive:     { hp: 5, speed: 0,   perception: 0,   size: 22, color: '#33ff66', score: 60, contactDmg: 0 },
-    swarmling:{ hp: 1, speed: 3,   perception: 180, size: 6,  color: '#66ff88', score: 5,  contactDmg: 10 },
+    drifter:  { hp: 1, speed: 2,   perception: 80,  size: 12, color: '#ff3355', score: 10, contactDmg: 10 },
+    hunter:   { hp: 1, speed: 3,   perception: 180, size: 14, color: '#ff8800', score: 20, contactDmg: 15 },
+    turret:   { hp: 5, speed: 0,   perception: 220, size: 18, color: '#aa44ff', score: 80, bulletDmg: 18 },
+    sniper:   { hp: 2, speed: 0.5, perception: 9999,size: 13, color: '#ff2255', score: 60, bulletDmg: 20 },
+    hive:     { hp: 12, speed: 0,   perception: 0,   size: 24, color: '#33ff66', score: 80, contactDmg: 0 },
+    swarmling:{ hp: 1, speed: 3,   perception: 180, size: 6,  color: '#66ff88', score: 5,  contactDmg: 8 },
     phantom:  { hp: 3, speed: 2,   perception: 200, size: 14, color: '#bb77ff', score: 40, contactDmg: 12 },
     drainer:  { hp: 1, speed: 2,   perception: 150, size: 11, color: '#33aaff', score: 30, contactDmg: 0 },
 };
@@ -1878,6 +1972,26 @@ class Enemy {
         const sensesPlayer = dToPlayer < 80;
         const isMarked = this.markedTimer > 0;
         const hasVision = sensesPlayer || isMarked;
+
+        // Swarmlings always lock on player (hive-mind link)
+        if (this.type === 'swarmling') {
+            this.state = 'alert';
+            this.lastKnownX = player.x;
+            this.lastKnownY = player.y;
+            this.stateTimer = 0;
+            this.doAlertMove(1.0);
+            // Contact damage always (no vision needed)
+            if (dToPlayer < this.size + player.radius + 3) {
+                player.takeDamage(this.contactDmg);
+            }
+            // Wall collision
+            for (const w of walls) {
+                if (w instanceof FragileWall && !w.alive) continue;
+                const push = pushCircleOutOfRect(this.x, this.y, this.size * 0.6, w.x, w.y, w.w, w.h);
+                if (push) { this.x = push.x; this.y = push.y; }
+            }
+            return; // skip normal AI
+        }
 
         switch (this.state) {
             case 'patrol':
@@ -1987,13 +2101,23 @@ class Enemy {
         this.y += Math.sin(this.patrolAngle) * this.speed * 0.4 * dt * 60;
     }
     takeDamage(dmg) {
+        if (!this.alive) return;
         this.hp -= dmg;
         this.markedTimer = Math.max(this.markedTimer, 0.5);
         spawnParticles(this.x, this.y, 3, this.color, 2);
         if (this.hp <= 0) {
             this.alive = false;
-            score += this.score;
+            // Apply double score if active
+            const isDouble = player && player.scoreBonusTimer > 0;
+            const actualScore = isDouble ? this.score * 2 : this.score;
+            score += actualScore;
             spawnParticles(this.x, this.y, 5, this.color, 2);
+            // Show kill score (doubled if bonus active)
+            if (actualScore > 0) {
+                const label = isDouble ? '+' + actualScore + ' x2' : '+' + actualScore;
+                const color = isDouble ? '#ffee44' : '#ffcc00';
+                pickupTexts.push({ x: this.x, y: this.y - 12, text: label, color: color, life: 0.8 });
+            }
             // ALL enemies drop energy (100%)
             const dropAmt = { drifter: 8, hunter: 15, turret: 18, sniper: 25, hive: 30, swarmling: 3, phantom: 18, drainer: 12 };
             energyOrbs.push({ x: this.x, y: this.y, life: 10, amount: dropAmt[this.type] || 10 });
@@ -2033,10 +2157,7 @@ class Enemy {
         // Always use the enemy's own type color (never override to red)
         const isAggro = this.state === 'alert';
         ctx.fillStyle = this.color;
-        if (vis > 0.15) {
-            ctx.shadowBlur = vis * (isAggro ? 10 : 6);
-            ctx.shadowColor = this.color; // glow matches type color!
-        }
+        // (glow removed for performance)
 
         // Alert indicator: small pulsing ring in enemy's OWN color
         if (isAggro && vis > 0.25) {
@@ -2124,7 +2245,6 @@ class Enemy {
 
         ctx.restore();
         ctx.globalAlpha = 1;
-        ctx.shadowBlur = 0;
     }
 }
 
@@ -2138,7 +2258,7 @@ class Turret extends Enemy {
     constructor(x, y) {
         super('turret', x, y);
         this.detectRadius = 220;     // visible detection zone
-        this.attackCooldown = 1.2;
+        this.attackCooldown = 0.5;
         this.aimAngle = 0;
         this.signalTimer = 3;        // first signal after 3s
         this.signalInterval = 6;
@@ -2148,6 +2268,8 @@ class Turret extends Enemy {
         this.signalTargetX = 0;
         this.signalTargetY = 0;
         this.jamTimer = 0;           // jammed by sonar
+        this.sonarHits = 0;          // need 2 sonar hits to jam
+        this.hitByPulses = new Set(); // track which pulse IDs already counted
         this.engaged = false;        // player in zone?
     }
     update() {
@@ -2185,7 +2307,7 @@ class Turret extends Enemy {
                 b.markedTimer = 999; // turret bullets always visible
                 b.color = '#cc66ff';  // purple to match turret
                 bullets.push(b);
-                this.attackCooldown = 1.2;
+                this.attackCooldown = 0.45;
             }
 
             // (Signal/report functionality removed — turret is pure combat threat now)
@@ -2196,10 +2318,17 @@ class Turret extends Enemy {
         }
     }
     // Sonar jam: called from handleCollisions
-    sonarStun() {
-        this.jamTimer = 3;
-        this.signalActive = false;
-        spawnParticles(this.x, this.y, 6, '#00f2ff', 2);
+    sonarStun(pulseId) {
+        if (pulseId && this.hitByPulses.has(pulseId)) return; // same pulse, ignore
+        if (pulseId) this.hitByPulses.add(pulseId);
+        this.sonarHits++;
+        spawnParticles(this.x, this.y, 4, '#00f2ff', 1.5);
+        if (this.sonarHits >= 2) {
+            this.jamTimer = 3;
+            this.sonarHits = 0;
+            this.signalActive = false;
+            spawnParticles(this.x, this.y, 6, '#00f2ff', 2);
+        }
     }
     takeDamage(dmg) {
         this.hp -= dmg;
@@ -2207,7 +2336,9 @@ class Turret extends Enemy {
         spawnParticles(this.x, this.y, 6, this.color, 2);
         if (this.hp <= 0) {
             this.alive = false;
-            score += 80;
+            const isDouble = player && player.scoreBonusTimer > 0;
+            const turretScore = isDouble ? 160 : 80;
+            score += turretScore;
             spawnParticles(this.x, this.y, 12, this.color, 3);
             spawnParticles(this.x, this.y, 8, '#ffcc00', 2);
             // BIG reward: HP + energy + energy orb
@@ -2216,7 +2347,8 @@ class Turret extends Enemy {
             energyOrbs.push({ x: this.x, y: this.y, life: 12, amount: 25 });
             // Pickup text
             if (typeof pickupTexts !== 'undefined') {
-                pickupTexts.push({ x: this.x, y: this.y - 20, text: 'TURRET DOWN!', color: '#ffcc00', life: 2 });
+                const tLabel = isDouble ? 'TURRET DOWN! +' + turretScore + ' x2' : 'TURRET DOWN!';
+                pickupTexts.push({ x: this.x, y: this.y - 20, text: tLabel, color: isDouble ? '#ffee44' : '#ffcc00', life: 2 });
                 pickupTexts.push({ x: this.x, y: this.y, text: 'HP+30  E+30', color: '#aa44ff', life: 1.8 });
             }
         }
@@ -2313,12 +2445,13 @@ class Sniper extends Enemy {
         super('sniper', x, y);
         this.charging = false;
         this.chargeTimer = 0;
-        this.chargeMax = 2.0;       // seconds to charge
+        this.chargeMax = 1.5;       // seconds to charge
         this.targetX = 0;
         this.targetY = 0;
         this.stunTimer = 0;         // stunned after sonar/bullet hit
         this.cooldown = 0;          // post-fire cooldown before next charge
         this.flinching = false;
+        this.hitByPulses = new Set(); // track which pulse IDs already counted
     }
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
@@ -2345,28 +2478,40 @@ class Sniper extends Enemy {
             return;
         }
 
-        const hearsPlayer = playerNoiseRadius > 0 && !lineHitsWall(this.x, this.y, playerNoiseX, playerNoiseY);
+        // Sniper hears ALL noise globally — walls don't block (long-range sensor)
+        const hearsPlayer = playerNoiseRadius > 0;
+
+        // Auto-scan timer: if no noise for a while, lock onto player's position
+        if (!this.scanTimer) this.scanTimer = 0;
+        this.scanTimer += dt;
 
         if (!this.charging) {
-            // Listen for noise → start charging
+            // Listen for noise → start charging immediately
             if (hearsPlayer) {
                 this.charging = true;
                 this.chargeTimer = 0;
                 this.targetX = playerNoiseX;
                 this.targetY = playerNoiseY;
+                this.scanTimer = 0;
+            } else if (this.scanTimer > 4) {
+                // Auto-scan: no noise for 4s → lock onto player area (inaccurate)
+                this.charging = true;
+                this.chargeTimer = 0;
+                this.targetX = player.x + rand(-60, 60);
+                this.targetY = player.y + rand(-60, 60);
+                this.scanTimer = 0;
             }
         } else {
             // Charging: track noise (laser follows sound)
             if (hearsPlayer) {
-                // Track toward noise source — faster as charge progresses
-                // Early charge: slow drift (0.04), late charge: faster lock-on (0.12)
-                const trackSpeed = 0.04 + (this.chargeTimer / this.chargeMax) * 0.08;
+                const trackSpeed = 0.05 + (this.chargeTimer / this.chargeMax) * 0.1;
                 this.targetX = lerp(this.targetX, playerNoiseX, trackSpeed);
                 this.targetY = lerp(this.targetY, playerNoiseY, trackSpeed);
+                this.scanTimer = 0;
             } else {
-                // No noise: aim drifts slowly (inaccurate), rewards silent repositioning
-                this.targetX += rand(-0.5, 0.5);
-                this.targetY += rand(-0.5, 0.5);
+                // No noise: aim drifts toward player slowly (imprecise but still threatening)
+                this.targetX = lerp(this.targetX, player.x + rand(-40, 40), 0.01);
+                this.targetY = lerp(this.targetY, player.y + rand(-40, 40), 0.01);
             }
 
             this.chargeTimer += dt;
@@ -2378,12 +2523,13 @@ class Sniper extends Enemy {
                 b.playerDmg = ENEMY_CFG.sniper.bulletDmg;
                 b.color = '#ff4444';
                 b.radius = 4;
+                b.maxRange = 1500; // sniper: extreme range
                 b.markedTimer = 2; // sniper bullet is ALWAYS visible (tracer)
                 bullets.push(b);
-                spawnParticles(this.x, this.y, 8, '#ff2255', 3);
+                spawnParticles(this.x, this.y, 6, '#ff2255', 2);
                 this.charging = false;
                 this.chargeTimer = 0;
-                this.cooldown = 3; // 3s rest after firing
+                this.cooldown = 1.5; // 1.5s rest after firing
             }
         }
     }
@@ -2400,7 +2546,9 @@ class Sniper extends Enemy {
         }
     }
     // Sonar hit → longer stun (called from handleCollisions)
-    sonarStun() {
+    sonarStun(pulseId) {
+        if (pulseId && this.hitByPulses.has(pulseId)) return; // same pulse, ignore
+        if (pulseId) this.hitByPulses.add(pulseId);
         if (this.charging) {
             this.charging = false;
             this.chargeTimer = 0;
@@ -2463,8 +2611,8 @@ class Sniper extends Enemy {
 class Hive extends Enemy {
     constructor(x, y) {
         super('hive', x, y);
-        this.spawnTimer = 1.5;
-        this.spawnInterval = 1.6;
+        this.spawnTimer = 3.0;
+        this.spawnInterval = 3.0;
         this.pulseAnim = 0;
     }
     update() {
@@ -2472,23 +2620,28 @@ class Hive extends Enemy {
         if (this.markedTimer <= 0) this.markIntensity = 0;
         // No movement, no perception — just spawns
         this.spawnTimer -= dt;
-        // Cap swarmlings at 12 total on map
-        const swarmCount = enemies.filter(e => e.type === 'swarmling' && e.alive).length;
-        if (this.spawnTimer <= 0 && swarmCount < 12) {
+        // Cap swarmlings at 10 total on map
+        let swarmCount = 0;
+        for (const e of enemies) { if (e.type === 'swarmling' && e.alive) swarmCount++; }
+        if (this.spawnTimer <= 0 && swarmCount < 10) {
             this.spawnTimer = this.spawnInterval;
             this.pulseAnim = 0.4;
-            const a = rand(0, Math.PI * 2);
-            const sx = this.x + Math.cos(a) * 25;
-            const sy = this.y + Math.sin(a) * 25;
-            const sw = new Enemy('swarmling', sx, sy);
-            sw.state = 'alert';
-            sw.lastKnownX = player.x + rand(-100, 100);
-            sw.lastKnownY = player.y + rand(-100, 100);
-            sw.stateTimer = 0;
-            enemies.push(sw);
-            spawnParticles(sx, sy, 3, '#66ff88', 1.5);
+            // Burst spawn: 2~3 swarmlings at once
+            const burstCount = Math.min(10 - swarmCount, 2 + (Math.random() < 0.3 ? 1 : 0));
+            for (let b = 0; b < burstCount; b++) {
+                const a = rand(0, Math.PI * 2);
+                const sx = this.x + Math.cos(a) * (20 + b * 8);
+                const sy = this.y + Math.sin(a) * (20 + b * 8);
+                const sw = new Enemy('swarmling', sx, sy);
+                sw.state = 'alert';
+                sw.lastKnownX = player.x + rand(-100, 100);
+                sw.lastKnownY = player.y + rand(-100, 100);
+                sw.stateTimer = 0;
+                enemies.push(sw);
+                spawnParticles(sx, sy, 3, '#66ff88', 1.5);
+            }
         } else if (this.spawnTimer <= 0) {
-            this.spawnTimer = 1; // retry soon
+            this.spawnTimer = 0.8; // retry soon
         }
         if (this.pulseAnim > 0) this.pulseAnim -= dt;
         // Wall collision
@@ -2669,13 +2822,16 @@ class Boss {
         this.phaseTimer = 0;
     }
     takeDamage(dmg) {
+        if (!this.alive) return; // already dead, ignore further hits this frame
         this.hp -= dmg;
         this.markedTimer = Math.max(this.markedTimer, 1);
-        spawnParticles(this.x, this.y, 8, '#ffffff', 3);
+        spawnParticles(this.x, this.y, 3, '#ffffff', 2);
         if (this.hp <= 0) {
             this.alive = false;
             activeBoss = null;
-            score += this.score;
+            const isDouble = player && player.scoreBonusTimer > 0;
+            const actualScore = isDouble ? this.score * 2 : this.score;
+            score += actualScore;
             spawnParticles(this.x, this.y, 20, '#ffcc00', 4);
             spawnParticles(this.x, this.y, 10, '#ffffff', 3);
             // Boss drop: card crate + HP + energy
@@ -2683,7 +2839,8 @@ class Boss {
             player.hp = Math.min(player.maxHp, player.hp + 30);
             player.energy = Math.min(player.getMaxEnergy(), player.energy + 50);
             energyOrbs.push({ x: this.x, y: this.y, life: 15, amount: 40 });
-            pickupTexts.push({ x: this.x, y: this.y - 30, text: 'BOSS DOWN! +' + this.score, color: '#ffcc00', life: 3 });
+            const bossLabel = isDouble ? 'BOSS DOWN! +' + actualScore + ' x2' : 'BOSS DOWN! +' + actualScore;
+            pickupTexts.push({ x: this.x, y: this.y - 30, text: bossLabel, color: isDouble ? '#ffee44' : '#ffcc00', life: 3 });
             pickupTexts.push({ x: this.x, y: this.y, text: 'HP+30 ENERGY+50', color: '#66ffcc', life: 2.5 });
             SFX.bossDead(); SFX.explosion();
             sessionStats.bossKills++;
@@ -2756,9 +2913,7 @@ class BossSatellite extends Boss {
             const a = (Math.PI / 2) * i;
             const cx = Math.cos(a) * this.size * 0.6, cy = Math.sin(a) * this.size * 0.6;
             ctx.fillStyle = '#ffcc00';
-            ctx.shadowBlur = 8; ctx.shadowColor = '#ffcc00';
             ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
-            ctx.shadowBlur = 0;
         }
         ctx.restore(); ctx.globalAlpha = 1; ctx.lineWidth = 1;
         this.drawHPBar();
@@ -2768,31 +2923,30 @@ class BossSatellite extends Boss {
 // Boss 2: Split Mother (180s) — splits into drifters when damaged
 class BossSplitMother extends Boss {
     constructor() {
-        super('splitmom', 16, rand(100, W - 100), rand(100, H - 100));
+        super('splitmom', 25, rand(100, W - 100), rand(100, H - 100));
         this.score = 300;
         this.size = 40;
-        this.attackTimer = 4;
-        this.lastSplitHp = 16; // track hp thresholds for splits
+        this.attackTimer = 3;
+        this.lastSplitHp = 25;
         this.pathAngle = rand(0, Math.PI * 2);
     }
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
         this.phaseTimer += dt;
-        // Patrol path movement
-        this.pathAngle += rand(-0.02, 0.02);
-        this.x += Math.cos(this.pathAngle) * 2 * dt * 60;
-        this.y += Math.sin(this.pathAngle) * 2 * dt * 60;
+        // Chase player (not just drift)
+        const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
+        this.pathAngle = lerp(this.pathAngle, toPlayer, 0.03);
+        this.x += Math.cos(this.pathAngle) * 2.2 * dt * 60;
+        this.y += Math.sin(this.pathAngle) * 2.2 * dt * 60;
         this.x = clamp(this.x, 60, W - 60); this.y = clamp(this.y, 60, H - 60);
-        if (this.x <= 60 || this.x >= W - 60) this.pathAngle = Math.PI - this.pathAngle;
-        if (this.y <= 60 || this.y >= H - 60) this.pathAngle = -this.pathAngle;
         // Burst of 8 bullets
         this.attackTimer -= dt;
         if (this.attackTimer <= 0) {
-            this.attackTimer = 3.5;
+            this.attackTimer = 2.5;
             for (let i = 0; i < 8; i++) {
                 const ba = (Math.PI * 2 / 8) * i + this.phaseTimer;
                 const b = new Bullet(this.x, this.y, ba, 4.5, 1, 'enemy');
-                b.playerDmg = 10; b.markedTimer = 999; b.color = '#ff4444'; b.radius = 3;
+                b.playerDmg = 12; b.markedTimer = 999; b.color = '#ff4444'; b.radius = 3;
                 bullets.push(b);
             }
         }
@@ -2800,17 +2954,22 @@ class BossSplitMother extends Boss {
     takeDamage(dmg) {
         const hpBefore = this.hp;
         super.takeDamage(dmg);
-        // Split: spawn drifters every 5 HP lost
+        // Split: spawn hunters every 5 HP lost (cap at 8 split-hunters on screen)
         const threshold = 5;
         if (Math.floor(hpBefore / threshold) > Math.floor(Math.max(this.hp, 0) / threshold)) {
-            for (let i = 0; i < 3; i++) {
+            let hunterCount = 0;
+            for (const e of enemies) { if (e.type === 'hunter' && e.alive) hunterCount++; }
+            const spawnCount = Math.min(3, Math.max(0, 15 - hunterCount));
+            for (let i = 0; i < spawnCount; i++) {
                 const a = rand(0, Math.PI * 2);
-                const e = new Enemy('drifter', this.x + Math.cos(a) * 30, this.y + Math.sin(a) * 30);
+                const e = new Enemy('hunter', this.x + Math.cos(a) * 40, this.y + Math.sin(a) * 40);
                 e.state = 'alert'; e.lastKnownX = player.x; e.lastKnownY = player.y;
+                e.markedTimer = 3;
+                e.markIntensity = 1;
                 enemies.push(e);
             }
-            spawnParticles(this.x, this.y, 12, '#ff3355', 3);
-            pickupTexts.push({ x: this.x, y: this.y - 20, text: '分裂!', color: '#ff3355', life: 1 });
+            spawnParticles(this.x, this.y, 8, '#ff3355', 3);
+            pickupTexts.push({ x: this.x, y: this.y - 20, text: '⚠ 分裂!', color: '#ff3355', life: 2 });
         }
     }
     draw() {
@@ -2819,13 +2978,12 @@ class BossSplitMother extends Boss {
         const pulse = 0.8 + Math.sin(performance.now() * 0.004) * 0.2;
         ctx.globalAlpha = vis * pulse;
         ctx.fillStyle = '#ff3355';
-        ctx.shadowBlur = 15; ctx.shadowColor = '#ff3355';
         ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
         // Inner pulsing ring
         ctx.strokeStyle = '#ff6688'; ctx.lineWidth = 2;
         const inner = this.size * 0.6 + Math.sin(performance.now() * 0.006) * 4;
         ctx.beginPath(); ctx.arc(this.x, this.y, inner, 0, Math.PI * 2); ctx.stroke();
-        ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.lineWidth = 1;
+        ctx.globalAlpha = 1; ctx.lineWidth = 1;
         this.drawHPBar();
     }
 }
@@ -2879,7 +3037,6 @@ class BossJammer extends Boss {
         const vis = Math.max(0.18, sonarVis);
         ctx.globalAlpha = vis;
         ctx.fillStyle = '#ddeeff';
-        ctx.shadowBlur = 12; ctx.shadowColor = '#ffffff';
         ctx.beginPath();
         for (let i = 0; i < this.vertices.length; i++) {
             const v = this.vertices[i];
@@ -2889,7 +3046,7 @@ class BossJammer extends Boss {
             i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
         }
         ctx.closePath(); ctx.fill();
-        ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+        ctx.globalAlpha = 1;
         // Static sparks
         for (let i = 0; i < 3; i++) {
             ctx.fillStyle = '#ffffff';
@@ -2907,7 +3064,7 @@ class BossJammer extends Boss {
 class FragileWall extends Wall {
     constructor(x, y, w, h) {
         super(x, y, w, h);
-        this.wallHp = 3;
+        this.wallHp = 2;
         this.alive = true;
     }
     takeDamage() {
@@ -2923,7 +3080,7 @@ class FragileWall extends Wall {
     draw() {
         if (!this.alive) return;
         // Cracked texture
-        const crack = 1 - this.wallHp / 3;
+        const crack = 1 - this.wallHp / 2;
         ctx.fillStyle = 'rgba(40,30,25,' + (0.8 + crack * 0.15) + ')';
         ctx.fillRect(this.x, this.y, this.w, this.h);
         ctx.strokeStyle = 'rgba(160,120,80,' + (0.15 + crack * 0.15) + ')';
@@ -2995,8 +3152,21 @@ class Particle {
         ctx.globalAlpha = 1;
     }
 }
+// In-place array cleanup (avoids creating new arrays each frame)
+function purgeArray(arr, keep) {
+    let w = 0;
+    for (let r = 0; r < arr.length; r++) {
+        if (keep(arr[r])) arr[w++] = arr[r];
+    }
+    arr.length = w;
+}
+
+const MAX_PARTICLES = 200;
+const MAX_BULLETS = 120;
 function spawnParticles(x, y, count, color, speed) {
-    for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color, speed));
+    const room = MAX_PARTICLES - particles.length;
+    const n = Math.min(count, room);
+    for (let i = 0; i < n; i++) particles.push(new Particle(x, y, color, speed));
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3037,9 +3207,15 @@ function spawnEnemy(type) {
     const ty = H / 2 + rand(-200, 200);
     let e;
     if (type === 'turret') {
-        e = new Turret(rand(100, W - 100), rand(100, H - 100));
+        let tx2, ty2, tries = 0;
+        do { tx2 = rand(100, W - 100); ty2 = rand(100, H - 100); tries++; }
+        while (pointInWall(tx2, ty2) && tries < 20);
+        e = new Turret(tx2, ty2);
     } else if (type === 'sniper') {
-        e = new Sniper(rand(80, W - 80), rand(80, H - 80));
+        let sx2, sy2, tries = 0;
+        do { sx2 = rand(80, W - 80); sy2 = rand(80, H - 80); tries++; }
+        while (pointInWall(sx2, sy2) && tries < 20);
+        e = new Sniper(sx2, sy2);
     } else if (type === 'hive') {
         let hx, hy, tries = 0;
         do { hx = rand(100, W - 100); hy = rand(100, H - 100); tries++; }
@@ -3103,13 +3279,15 @@ function updateSpawning() {
     // ── Spawn helpers: respect caps ──
     const canSpawn = (type, cap) => totalEnemies < globalCap && (eCounts[type] || 0) < cap;
 
-    // Drifters: gentle start, cap 12
+    // Drifters: steady presence, cap 12
     spawnTimers.drifter = (spawnTimers.drifter || 0) - dt;
     if (spawnTimers.drifter <= 0 && canSpawn('drifter', 12)) {
-        spawnEnemy('drifter');
-        spawnTimers.drifter = Math.max(1.2, 4.0 / diffMul);
+        // Spawn 1-2 drifters at once in early game to keep pressure
+        const drifterBatch = t < 60 && (eCounts.drifter || 0) < 4 ? 2 : 1;
+        for (let i = 0; i < drifterBatch; i++) { if (canSpawn('drifter', 12)) spawnEnemy('drifter'); }
+        spawnTimers.drifter = Math.max(1.2, 2.8 / diffMul);
     } else if (spawnTimers.drifter <= 0) {
-        spawnTimers.drifter = 2; // retry later
+        spawnTimers.drifter = 1.5;
     }
 
     // Hunters: after 30s, cap 6
@@ -3195,11 +3373,15 @@ function updateSpawning() {
         pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '⚠ 复杂地形：反射墙 + 脆弱墙', color: '#bbddff', life: 3 });
     }
 
-    // Supply crates: every 8-14 seconds, max 5 on screen
+    // Supply crates: spawn faster as game progresses (8-14s early → 4-7s late)
     crateTimer -= dt;
-    if (crateTimer <= 0 && supplyCrates.length < 5) {
+    const crateMaxOnScreen = gameTime > 180 ? 7 : 5;
+    if (crateTimer <= 0 && supplyCrates.length < crateMaxOnScreen) {
         spawnSupplyCrate();
-        crateTimer = rand(8, 14);
+        const timeFactor = clamp(gameTime / 300, 0, 1); // ramps over 5 minutes
+        const minInterval = lerp(8, 4, timeFactor);
+        const maxInterval = lerp(14, 7, timeFactor);
+        crateTimer = rand(minInterval, maxInterval);
     }
 
     // Card crates: every 20-28 seconds, max 2 on screen
@@ -3221,11 +3403,13 @@ function handleCollisions() {
     const echoLv = player.cardLv('echo');
     const echoMul = 1 + 2 * echoLv / (echoLv + 2.5);
 
-    // Player bullets vs enemies
+    // Player bullets vs enemies (with distance pre-check)
     for (let b of bullets) {
         if (!b.alive || b.owner !== 'player') continue;
         for (let e of enemies) {
             if (!e.alive) continue;
+            // Quick reject: skip if clearly too far (Manhattan distance)
+            if (Math.abs(b.x - e.x) > 40 || Math.abs(b.y - e.y) > 40) continue;
             if (dist(b.x, b.y, e.x, e.y) < e.size + b.radius) {
                 const wasAlive = e.hp > 0;
                 e.takeDamage(b.damage);
@@ -3250,10 +3434,11 @@ function handleCollisions() {
     // Player bullets vs Boss
     if (activeBoss && activeBoss.alive) {
         for (let b of bullets) {
+            if (!activeBoss || !activeBoss.alive) break; // boss died this frame, stop
             if (!b.alive || b.owner !== 'player') continue;
             if (dist(b.x, b.y, activeBoss.x, activeBoss.y) < activeBoss.size + b.radius) {
                 activeBoss.takeDamage(b.damage);
-                spawnParticles(b.x, b.y, 3, '#ffcc00', 2);
+                spawnParticles(b.x, b.y, 1, '#ffcc00', 1.5);
                 if (b.pierceLeft > 0) { b.pierceLeft--; } else { b.alive = false; }
             }
         }
@@ -3262,16 +3447,18 @@ function handleCollisions() {
     // Enemy bullets vs player (with per-bullet damage)
     for (let b of bullets) {
         if (!b.alive || b.owner !== 'enemy') continue;
+        if (Math.abs(b.x - player.x) > 20 || Math.abs(b.y - player.y) > 20) continue;
         if (dist(b.x, b.y, player.x, player.y) < player.radius + b.radius) {
             player.takeDamage(b.playerDmg || 15);
             b.alive = false;
         }
     }
 
-    // Bullets vs walls (fragile walls take damage, reflective walls bounce)
+    // Bullets vs special walls only (fragile/reflect); normal wall collision in Bullet.update()
     for (let b of bullets) {
         if (!b.alive) continue;
-        for (let w of walls) {
+        for (let w of specialWalls) {
+            if (b.x < w.x - 10 || b.x > w.x + w.w + 10 || b.y < w.y - 10 || b.y > w.y + w.h + 10) continue;
             if (w instanceof FragileWall) {
                 if (!w.alive) continue;
                 if (b.x > w.x && b.x < w.x + w.w && b.y > w.y && b.y < w.y + w.h) {
@@ -3334,7 +3521,7 @@ function handleCollisions() {
                     e.lastKnownY = p.y;
                     e.stateTimer = 0;
                 }
-                if (e.sonarStun) e.sonarStun();
+                if (e.sonarStun) e.sonarStun(p.id);
             }
         }
         for (let b of bullets) {
@@ -3367,11 +3554,15 @@ function handleCollisions() {
         }
     }
 
+    // Energy orb cap: mark oldest as dead if too many
+    if (energyOrbs.length > 60) {
+        for (let i = 0; i < energyOrbs.length - 60; i++) energyOrbs[i].life = 0;
+    }
     // Energy orb pickup
-    for (let i = energyOrbs.length - 1; i >= 0; i--) {
+    for (let i = 0; i < energyOrbs.length; i++) {
         const orb = energyOrbs[i];
         orb.life -= dt;
-        if (orb.life <= 0) { energyOrbs.splice(i, 1); continue; }
+        if (orb.life <= 0) continue;
         const d = dist(orb.x, orb.y, player.x, player.y);
         if (d < 60 && d > 0) {
             const pull = 3 * dt * 60;
@@ -3382,9 +3573,11 @@ function handleCollisions() {
         if (d < 20) {
             player.energy = Math.min(player.getMaxEnergy(), player.energy + orb.amount);
             spawnParticles(orb.x, orb.y, 8, '#00aaff', 2);
-            energyOrbs.splice(i, 1);
+            orb.life = 0;
         }
     }
+    // Cleanup dead orbs (every 10 frames)
+    if (frameCount % 10 === 0) purgeArray(energyOrbs, o => o.life > 0);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3431,6 +3624,7 @@ function updateHUD() {
 // ═══════════════════════════════════════════════════════════
 function loop(now) {
     if (!playing) return;
+    if (gamePaused) return; // Stop loop when paused
     dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
 
@@ -3461,14 +3655,23 @@ function loop(now) {
         if (activeBoss && activeBoss.alive) activeBoss.update();
         if (activeBoss && !activeBoss.alive) activeBoss = null;
 
-        pulses = pulses.filter(p => p.alive);
-        bullets = bullets.filter(b => b.alive);
-        enemies = enemies.filter(e => e.alive);
-        supplyCrates = supplyCrates.filter(c => c.alive);
-        cardCrates = cardCrates.filter(c => c.alive);
-        particles = particles.filter(p => p.life > 0);
-        // Remove destroyed fragile walls
-        walls = walls.filter(w => !(w instanceof FragileWall) || w.alive);
+        // Cleanup: bullets every frame (high turnover), others every 3 frames
+        purgeArray(bullets, b => b.alive);
+        if (frameCount % 3 === 0) {
+            purgeArray(pulses, p => p.alive);
+            purgeArray(enemies, e => e.alive);
+            purgeArray(supplyCrates, c => c.alive);
+            purgeArray(cardCrates, c => c.alive);
+            purgeArray(particles, p => p.life > 0);
+            purgeArray(walls, w => !(w instanceof FragileWall) || w.alive);
+            // Bullet cap: kill oldest enemy bullets when over limit
+            if (bullets.length > MAX_BULLETS) {
+                let excess = bullets.length - MAX_BULLETS;
+                for (let i = 0; i < bullets.length && excess > 0; i++) {
+                    if (bullets[i].owner === 'enemy') { bullets[i].alive = false; excess--; }
+                }
+            }
+        }
     }
 
     // Draw
@@ -3489,15 +3692,14 @@ function loop(now) {
     walls.forEach(w => w.draw());
 
     // Energy orbs
+    const orbFlicker = 0.5 + Math.sin(now * 0.005) * 0.3;
+    ctx.fillStyle = '#00aaff';
     for (const orb of energyOrbs) {
-        const flicker = 0.5 + Math.sin(now * 0.005) * 0.3;
-        ctx.globalAlpha = flicker;
-        ctx.fillStyle = '#00aaff';
-        ctx.shadowBlur = 10; ctx.shadowColor = '#00aaff';
+        if (orb.life <= 0) continue;
+        ctx.globalAlpha = orbFlicker;
         ctx.beginPath(); ctx.arc(orb.x, orb.y, 5, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha = 1;
     }
+    ctx.globalAlpha = 1;
 
     supplyCrates.forEach(c => c.draw());
     cardCrates.forEach(c => c.draw());
@@ -3547,18 +3749,17 @@ function loop(now) {
 
     // Card inventory display (top right)
     if (player.cards.size > 0) {
-        const entries = [...player.cards.entries()];
         ctx.textAlign = 'right';
         ctx.font = '10px Orbitron, monospace';
-        for (let i = 0; i < entries.length; i++) {
-            const [id, lv] = entries[i];
-            const card = CARD_DEFS.find(c => c.id === id);
+        let ci = 0;
+        for (const [id, lv] of player.cards) {
+            const card = CARD_MAP[id];
             if (!card) continue;
-            const yy = 20 + i * 16;
-            const col = card.rarity === 'epic' ? '#aa44ff' : card.rarity === 'rare' ? '#4488ff' : '#888';
-            ctx.fillStyle = col;
+            const yy = 20 + ci * 16;
+            ctx.fillStyle = card.rarity === 'epic' ? '#aa44ff' : card.rarity === 'rare' ? '#4488ff' : '#888';
             ctx.globalAlpha = 0.7;
             ctx.fillText(card.name + ' Lv.' + lv, W - 16, yy);
+            ci++;
         }
         ctx.globalAlpha = 1;
         ctx.textAlign = 'left';
@@ -3576,6 +3777,135 @@ addEventListener('mousedown', e => {
     if (!playing || cardSelectActive) return;
     if (e.button === 2) player.pulse();
 });
+
+// ═══════════════════════════════════════════════════════════
+//  PAUSE SYSTEM
+// ═══════════════════════════════════════════════════════════
+let gamePaused = false;
+const ENEMY_GUIDE = [
+    { type: 'drifter', name: '漂流者', desc: '随机游荡，接触伤害', color: '#ff3355' },
+    { type: 'hunter', name: '猎手', desc: '听声追踪，高速冲撞', color: '#ff8800' },
+    { type: 'turret', name: '炮台', desc: '范围检测，连续射击(2次声纳可瘫痪)', color: '#aa44ff' },
+    { type: 'sniper', name: '狙击手', desc: '全图听声，蓄力狙击(红线预警，声纳可打断)', color: '#ff2255' },
+    { type: 'hive', name: '蜂巢', desc: '不移动，持续释放小怪群', color: '#33ff66' },
+    { type: 'swarmling', name: '蜂群虫', desc: '蜂巢产物，自动锁定玩家', color: '#66ff88' },
+    { type: 'phantom', name: '幻影', desc: '穿墙移动，半隐形', color: '#bb77ff' },
+    { type: 'drainer', name: '吸能者', desc: '吸取玩家能量', color: '#33aaff' },
+];
+// SVG shapes matching actual in-game enemy rendering
+function enemySVG(type, color) {
+    const s = 30; // viewBox size
+    const c = s / 2; // center
+    const r = 10; // base radius
+    switch (type) {
+        case 'drifter': // square
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><rect x="${c-r/2*1.1}" y="${c-r/2*1.1}" width="${r*1.1}" height="${r*1.1}" fill="${color}"/></svg>`;
+        case 'hunter': // diamond
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${c},${c-r} ${c+r*0.7},${c} ${c},${c+r} ${c-r*0.7},${c}" fill="${color}"/></svg>`;
+        case 'turret': { // hexagon
+            let pts = '';
+            for (let i = 0; i < 6; i++) {
+                const a = (Math.PI * 2 / 6) * i - Math.PI / 6;
+                pts += `${c + Math.cos(a) * r},${c + Math.sin(a) * r} `;
+            }
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${pts.trim()}" fill="${color}"/></svg>`;
+        }
+        case 'sniper': // narrow tall triangle
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${c},${c-r*1.2} ${c+r*0.4},${c+r*0.6} ${c-r*0.4},${c+r*0.6}" fill="${color}"/></svg>`;
+        case 'hive': { // circle with inner segment lines
+            let lines = '';
+            for (let i = 0; i < 6; i++) {
+                const a = (Math.PI * 2 / 6) * i;
+                lines += `<line x1="${c}" y1="${c}" x2="${c + Math.cos(a) * r}" y2="${c + Math.sin(a) * r}" stroke="#227744" stroke-width="1"/>`;
+            }
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><circle cx="${c}" cy="${c}" r="${r}" fill="${color}"/>${lines}</svg>`;
+        }
+        case 'swarmling': // small diamond
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${c},${c-r*0.7} ${c+r*0.45},${c} ${c},${c+r*0.7} ${c-r*0.45},${c}" fill="${color}"/></svg>`;
+        case 'phantom': { // wavy circle
+            let pts = '';
+            for (let i = 0; i < 12; i++) {
+                const a = (Math.PI * 2 / 12) * i;
+                const wobble = r + Math.sin(i * 1.5) * 2.5;
+                pts += `${c + Math.cos(a) * wobble},${c + Math.sin(a) * wobble} `;
+            }
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${pts.trim()}" fill="${color}" opacity="0.75"/></svg>`;
+        }
+        case 'drainer': // circle with swirl arc
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><circle cx="${c}" cy="${c}" r="${r}" fill="${color}"/><path d="M ${c+r*0.5},${c} A ${r*0.5},${r*0.5} 0 1 1 ${c-r*0.5},${c}" fill="none" stroke="#1166cc" stroke-width="1.5"/></svg>`;
+        default:
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><circle cx="${c}" cy="${c}" r="${r}" fill="${color}"/></svg>`;
+    }
+}
+function bossSVG(type, color) {
+    const s = 30, c = s / 2, r = 11;
+    switch (type) {
+        case 'satellite': { // octagon
+            let pts = '';
+            for (let i = 0; i < 8; i++) {
+                const a = (Math.PI * 2 / 8) * i - Math.PI / 8;
+                pts += `${c + Math.cos(a) * r},${c + Math.sin(a) * r} `;
+            }
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${pts.trim()}" fill="none" stroke="${color}" stroke-width="2"/><circle cx="${c-r*0.5}" cy="${c}" r="2" fill="${color}"/><circle cx="${c+r*0.5}" cy="${c}" r="2" fill="${color}"/><circle cx="${c}" cy="${c-r*0.5}" r="2" fill="${color}"/><circle cx="${c}" cy="${c+r*0.5}" r="2" fill="${color}"/></svg>`;
+        }
+        case 'splitmom': // large pulsing circle
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${color}" stroke-width="2"/><circle cx="${c}" cy="${c}" r="${r*0.5}" fill="${color}" opacity="0.5"/></svg>`;
+        case 'jammer': { // irregular polygon with static
+            let pts = '';
+            const verts = [0, 0.8, 1.5, 2.2, 3.0, 3.8, 4.6, 5.4];
+            verts.forEach(a => {
+                const rr = r * (0.8 + Math.sin(a * 3) * 0.25);
+                pts += `${c + Math.cos(a) * rr},${c + Math.sin(a) * rr} `;
+            });
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${pts.trim()}" fill="none" stroke="${color}" stroke-width="1.5"/><line x1="${c-3}" y1="${c-2}" x2="${c+3}" y2="${c-2}" stroke="${color}" stroke-width="1" opacity="0.6"/><line x1="${c-2}" y1="${c+2}" x2="${c+4}" y2="${c+2}" stroke="${color}" stroke-width="1" opacity="0.6"/></svg>`;
+        }
+        default:
+            return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><circle cx="${c}" cy="${c}" r="${r}" fill="${color}"/></svg>`;
+    }
+}
+const BOSS_GUIDE = [
+    { type: 'satellite', name: '核心卫星', desc: '旋转八边形，十字弹幕', color: '#ff4466' },
+    { type: 'splitmom', name: '分裂母体', desc: '追踪玩家，受伤分裂出猎手', color: '#ff3355' },
+    { type: 'jammer', name: '信号干扰器', desc: '削弱声纳范围，三向弹幕', color: '#ddeeff' },
+];
+function renderPauseGuide() {
+    const eg = document.getElementById('pauseEnemyGuide');
+    eg.innerHTML = '';
+    ENEMY_GUIDE.forEach(e => {
+        const d = document.createElement('div');
+        d.style.cssText = 'background:rgba(255,255,255,0.03);border:1px solid ' + e.color + '33;border-radius:6px;padding:8px 10px;width:110px;text-align:center;';
+        d.innerHTML = '<div style="margin-bottom:4px;display:flex;justify-content:center;">' + enemySVG(e.type, e.color) + '</div>'
+            + '<div style="font-size:10px;color:' + e.color + ';font-weight:bold;margin-bottom:2px;">' + e.name + '</div>'
+            + '<div style="font-size:9px;color:#888;line-height:1.4;">' + e.desc + '</div>';
+        eg.appendChild(d);
+    });
+    const bg = document.getElementById('pauseBossGuide');
+    bg.innerHTML = '';
+    BOSS_GUIDE.forEach(b => {
+        const d = document.createElement('div');
+        d.style.cssText = 'background:rgba(255,255,255,0.03);border:1px solid ' + b.color + '44;border-radius:6px;padding:8px 10px;width:140px;text-align:center;';
+        d.innerHTML = '<div style="margin-bottom:4px;display:flex;justify-content:center;">' + bossSVG(b.type, b.color) + '</div>'
+            + '<div style="font-size:10px;color:' + b.color + ';font-weight:bold;margin-bottom:2px;">' + b.name + '</div>'
+            + '<div style="font-size:9px;color:#888;line-height:1.4;">' + b.desc + '</div>';
+        bg.appendChild(d);
+    });
+}
+function togglePause() {
+    if (!playing) return;
+    if (cardSelectActive) return;
+    gamePaused = !gamePaused;
+    const overlay = document.getElementById('pauseOverlay');
+    if (gamePaused) {
+        renderPauseGuide();
+        overlay.style.display = 'flex';
+        overlay.classList.remove('hidden');
+    } else {
+        overlay.style.display = 'none';
+        overlay.classList.add('hidden');
+        lastTime = performance.now();
+        requestAnimationFrame(loop);
+    }
+}
 
 // ═══════════════════════════════════════════════════════════
 //  GAME FLOW
@@ -3602,7 +3932,7 @@ function startGame() {
     player = new Player();
     pulses = []; bullets = []; enemies = []; particles = [];
     energyOrbs = []; supplyCrates = []; pickupTexts = [];
-    cardCrates = []; walls = [];
+    cardCrates = []; walls = []; specialWalls = [];
     score = 0; gameTime = 0; frameCount = 0;
     spawnTimers = {}; crateTimer = 5;
     cardCrateTimer = 18;
@@ -3632,6 +3962,7 @@ function startGame() {
 
     playing = true;
     lastTime = performance.now();
+    if (bgmStopTimeout) { clearTimeout(bgmStopTimeout); bgmStopTimeout = null; }
     playBGM();
     requestAnimationFrame(loop);
 }
@@ -3645,7 +3976,7 @@ function gameOver() {
     SFX.death();
     // Fade out BGM over 2 seconds then stop
     fadeBGM(0, 2);
-    setTimeout(() => stopBGM(), 2200);
+    bgmStopTimeout = setTimeout(() => stopBGM(), 2200);
     if (score > best) {
         best = score;
         localStorage.setItem('neonEchoBest_' + currentPlayerName, best);
