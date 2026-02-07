@@ -1235,7 +1235,10 @@ class Player {
             bullets.push(b);
         }
         if (cost === undefined) cost = this.shootCost;
-        this.energy -= cost;
+        // Scatter energy cost multiplier: more bullets = more energy
+        // 1 bullet = 1x, 3 bullets = 1.4x, 5 bullets = 1.8x, 7 bullets = 2.2x
+        const scatterCostMul = 1 + (bulletCount - 1) * 0.2;
+        this.energy -= cost * scatterCostMul;
         // Rapid fire: diminishing returns (cap ~86% faster at Lv.5)
         const rapidMul = 1 - 0.88 * rapidLv / (rapidLv + 2);  // Lv1=0.71, Lv3=0.47, Lv5=0.37
         this.shootCooldown = this.shootInterval * Math.max(0.12, rapidMul);
@@ -2220,8 +2223,9 @@ class Enemy {
             // Hit but not killed — feedback for multi-HP enemies
             this.hitFlash = 0.12;
             SFX.enemyHit();
-            // Floating damage number
-            pickupTexts.push({ x: this.x + rand(-8, 8), y: this.y - this.size - 5, text: '-' + dmg, color: '#ffffff', life: 0.5 });
+            // Floating damage number (preserve 1 decimal for non-integers)
+            const dmgText = Number.isInteger(dmg) ? dmg : dmg.toFixed(1);
+            pickupTexts.push({ x: this.x + rand(-8, 8), y: this.y - this.size - 5, text: '-' + dmgText, color: '#ffffff', life: 0.5 });
         }
         if (this.hp <= 0) {
             this.alive = false;
@@ -2484,7 +2488,8 @@ class Turret extends Enemy {
         if (this.hp > 0) {
             this.hitFlash = 0.12;
             SFX.enemyHit();
-            pickupTexts.push({ x: this.x + rand(-8, 8), y: this.y - this.size - 5, text: '-' + dmg, color: '#ffffff', life: 0.5 });
+            const dmgText = Number.isInteger(dmg) ? dmg : dmg.toFixed(1);
+            pickupTexts.push({ x: this.x + rand(-8, 8), y: this.y - this.size - 5, text: '-' + dmgText, color: '#ffffff', life: 0.5 });
         }
         if (this.hp <= 0) {
             this.alive = false;
@@ -4353,9 +4358,13 @@ function togglePause() {
         renderPauseGuide();
         overlay.style.display = 'flex';
         overlay.classList.remove('hidden');
+        // Pause background music
+        if (bgm && !bgm.paused) bgm.pause();
     } else {
         overlay.style.display = 'none';
         overlay.classList.add('hidden');
+        // Resume background music
+        if (bgm) bgm.play().catch(() => {});
         lastTime = performance.now();
         requestAnimationFrame(loop);
     }
