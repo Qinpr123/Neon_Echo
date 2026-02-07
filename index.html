@@ -516,6 +516,21 @@ const SFX = {
         o2.connect(g2); g2.connect(audioCtx.destination);
         o2.start(t + 0.08); o2.stop(t + 0.45);
     },
+    _lastEnemyHit: 0,
+    enemyHit() {
+        ensureAudio();
+        const now = audioCtx.currentTime;
+        if (now - this._lastEnemyHit < 0.06) return;
+        this._lastEnemyHit = now;
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'triangle'; o.frequency.setValueAtTime(1200, now);
+        o.frequency.exponentialRampToValueAtTime(400, now + 0.04);
+        g.gain.setValueAtTime(0.07, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(); o.stop(now + 0.05);
+    },
     _hitBuf: null,
     _lastHit: 0,
     hit() {
@@ -712,6 +727,21 @@ const ACHIEVEMENTS = [
     { id: 'phantom_kill',  icon: '👻', name: '猎魂者',       desc: '击杀3个幽灵', check: s => s.phantomKills >= 3 },
     { id: 'wall_break',    icon: '💥', name: '破壁者',       desc: '摧毁一面脆弱墙', check: s => s.wallsBroken >= 1 },
     { id: 'shield_use',    icon: '⚡', name: '盾反',         desc: '使用护盾爆炸击杀敌人', check: s => s.shieldKills >= 1 },
+    // ── Progression achievements ──
+    { id: 'survive_600',   icon: '🎖️', name: '十分钟传说',   desc: '存活600秒（完整通关）', check: s => s.time >= 600 },
+    { id: 'score_10000',   icon: '👑', name: '暗域之王',     desc: '得分达到10000', check: s => s.score >= 10000 },
+    { id: 'kill_500',      icon: '💀', name: '灭绝者',       desc: '单局击杀500个敌人', check: s => s.kills >= 500 },
+    { id: 'boss_5',        icon: '🏆', name: '全Boss通关',   desc: '单局击杀5个Boss', check: s => s.bossKills >= 5 },
+    { id: 'all_boss_types',icon: '🌟', name: '终极猎手',     desc: '击杀全部5种Boss', check: s => s.bossTypesKilled.size >= 5 },
+    // ── Challenge achievements ──
+    { id: 'no_damage_60',  icon: '✨', name: '金身',         desc: '连续60秒不受伤', check: s => s.maxNoDmgTime >= 60 },
+    { id: 'no_sonar_120',  icon: '🌑', name: '盲者之道',     desc: '连续120秒不使用声纳', check: s => s.maxNoSonarTime >= 120 },
+    { id: 'tier3_survive', icon: '🔴', name: '直面狂暴',     desc: '存活到敌人狂暴阶段', check: s => s.tierReached >= 3 },
+    // ── Mastery achievements ──
+    { id: 'drainer_kill',  icon: '🔋', name: '能量守护者',   desc: '击杀一个吸能者', check: s => s.drainerKills >= 1 },
+    { id: 'card_10',       icon: '📚', name: '全能选手',     desc: '获得10张不同卡牌', check: s => s.uniqueCards >= 10 },
+    { id: 'dual_max',      icon: '💎', name: '双核大师',     desc: '同时拥有2张Lv.5卡牌', check: s => s.cardsMaxed >= 2 },
+    { id: 'reflect_kill',  icon: '🪞', name: '以彼之道',     desc: '用反弹子弹击杀敌人', check: s => s.reflectKills >= 1 },
 ];
 
 let unlockedAchievements = []; // loaded per-player on name input/startGame
@@ -722,8 +752,13 @@ function resetSessionStats() {
         kills: 0, bossKills: 0, score: 0, time: 0,
         maxNoDmgTime: 0, noDmgTimer: 0,
         uniqueCards: 0, maxCardLv: 0,
-        hiveKills: 0, phantomKills: 0,
+        hiveKills: 0, phantomKills: 0, drainerKills: 0,
         wallsBroken: 0, shieldKills: 0,
+        noSonarTimer: 0, maxNoSonarTime: 0,
+        bossTypesKilled: new Set(),
+        tierReached: 0,
+        reflectKills: 0,
+        cardsMaxed: 0,       // number of cards at Lv.5
     };
 }
 resetSessionStats();
@@ -733,9 +768,13 @@ function checkAchievements() {
     sessionStats.score = score;
     if (player) {
         sessionStats.uniqueCards = player.cards.size;
-        let maxLv = 0;
-        for (const lv of player.cards.values()) maxLv = Math.max(maxLv, lv);
+        let maxLv = 0, maxedCount = 0;
+        for (const lv of player.cards.values()) {
+            maxLv = Math.max(maxLv, lv);
+            if (lv >= 5) maxedCount++;
+        }
         sessionStats.maxCardLv = maxLv;
+        sessionStats.cardsMaxed = maxedCount;
     }
     for (const ach of ACHIEVEMENTS) {
         if (unlockedAchievements.includes(ach.id)) continue;
@@ -881,6 +920,8 @@ addEventListener('keydown', e => {
     keys[e.code] = true; e.preventDefault();
     // Space to toggle pause
     if (e.code === 'Space' && playing) { togglePause(); }
+    // Escape to return to main menu
+    if (e.code === 'Escape') { returnToMenu(); }
 });
 addEventListener('keyup', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
@@ -1034,6 +1075,7 @@ let walls = [];
 let specialWalls = []; // fragile + reflect walls only (for optimized collision)
 let cardSelectActive = false;
 let cardCrateTimer = 0;
+let sonarSlowFactor = 1; // updated each frame: speed multiplier for sonar-marked enemies
 let cardCrates = [];
 let achieveCheckTimer = 0;
 
@@ -1044,33 +1086,38 @@ let achieveCheckTimer = 0;
 //   - 能量相关卡牌多且强，保证后期不缺能量
 const CARD_DEFS = [
     // ── WEAPON (3) ──
-    { id: 'scatter',      name: '散射模块', desc: '射击变为扇形弹幕', rarity: 'common',
-      upgrades: ['3发弹幕', '4发弹幕', '5发弹幕', '6发弹幕', '7发弹幕'] },
+    { id: 'scatter',      name: '散射模块', desc: '射击变为扇形弹幕', rarity: 'rare',
+      upgrades: ['3发弹幕', '5发弹幕', '7发弹幕', '7发+10%伤害', '7发+20%伤害'] },
     { id: 'pierce',       name: '穿透弹头', desc: '子弹穿透敌人继续飞行', rarity: 'common',
       upgrades: ['穿透1个', '穿透2个', '穿透2个+10%伤害', '穿透3个+10%伤害', '穿透3个+20%伤害'] },
     { id: 'rapidfire',    name: '高速弹匣', desc: '提高射击频率', rarity: 'rare',
-      upgrades: ['+40%射速', '+65%射速', '+80%射速', '+90%射速', '+95%射速'] },
-    // ── SONAR (3) ──
+      upgrades: ['+32%射速', '+53%射速', '+68%射速', '+78%射速', '+86%射速'] },
+    // ── SONAR (4) ──
     { id: 'echo',         name: '回声延长', desc: '声纳标记持续更久', rarity: 'common',
-      upgrades: ['+60%标记', '+100%标记', '+130%标记', '+155%标记', '+175%标记'] },
+      upgrades: ['+57%标记', '+89%标记', '+109%标记', '+123%标记', '+133%标记'] },
     { id: 'doublepulse',  name: '双重脉冲', desc: '一次释放多圈声纳波', rarity: 'rare',
       upgrades: ['2圈', '2圈+范围', '3圈', '3圈+范围', '3圈+大范围'] },
     { id: 'sonareff',     name: '声纳减耗', desc: '降低声纳能量消耗', rarity: 'common',
-      upgrades: ['-5消耗', '-9消耗', '-12消耗', '-14消耗', '-15消耗'] },
+      upgrades: ['-5消耗', '-8消耗', '-10消耗', '-12消耗', '-13消耗'] },
     // ── SURVIVAL (3) ──
     { id: 'speedchip',    name: '速度芯片', desc: '提高移动速度', rarity: 'common',
-      upgrades: ['+15%', '+27%', '+36%', '+43%', '+48%'] },
+      upgrades: ['+23%', '+35%', '+42%', '+47%', '+50%'] },
     { id: 'energyharvest',name: '能量回收', desc: '击杀敌人回复能量', rarity: 'common',
-      upgrades: ['+8能量', '+14能量', '+18能量', '+21能量', '+23能量'] },
-    { id: 'energyshield', name: '能量护盾', desc: '能量>50%时减少受伤', rarity: 'rare',
-      upgrades: ['15%减伤', '25%减伤', '33%减伤', '38%减伤', '42%减伤'] },
+      upgrades: ['+7能量', '+12能量', '+14能量', '+16能量', '+17能量'] },
+    { id: 'energyshield', name: '能量护盾', desc: '能量>30%时减少受伤', rarity: 'rare',
+      upgrades: ['16%减伤', '24%减伤', '30%减伤', '34%减伤', '37%减伤'] },
     // ── ENERGY (3) — 核心解决后期能量问题 ──
     { id: 'bulleteff',    name: '节能弹匣', desc: '降低射击能量消耗', rarity: 'common',
-      upgrades: ['-2消耗', '-3.5消耗', '-4.5消耗', '-5.2消耗', '-5.7消耗'] },
+      upgrades: ['-1.3消耗', '-2消耗', '-2.5消耗', '-2.8消耗', '-3消耗'] },
     { id: 'quickcharge',  name: '快速充能', desc: '加快能量回复速度', rarity: 'rare',
-      upgrades: ['+40%回复', '+70%回复', '+92%回复', '+108%回复', '+120%回复'] },
-    { id: 'energycore',   name: '能量核心', desc: '提高能量上限和基础回复', rarity: 'epic',
-      upgrades: ['+25上限+1.5/s', '+45上限+2.5/s', '+60上限+3.2/s', '+72上限+3.7/s', '+80上限+4/s'] },
+      upgrades: ['+50%回复', '+75%回复', '+90%回复', '+100%回复', '+107%回复'] },
+    { id: 'energycore',   name: '能量核心', desc: '大幅提高能量上限和基础回复', rarity: 'epic',
+      upgrades: ['+37上限+2/s', '+58上限+3.1/s', '+71上限+3.8/s', '+80上限+4.3/s', '+87上限+4.7/s'] },
+    // ── BUILD-DEFINING (3) — 让声纳流和生存流有核心支柱 ──
+    { id: 'sonarslow',    name: '声波干扰', desc: '被声纳照亮的敌人移动减速', rarity: 'rare',
+      upgrades: ['减速25%', '减速40%', '减速50%', '减速58%', '减速65%'] },
+    { id: 'regen',        name: '再生装甲', desc: '持续缓慢回复生命值', rarity: 'rare',
+      upgrades: ['0.6HP/s', '1.0HP/s', '1.2HP/s', '1.35HP/s', '1.47HP/s'] },
 ];
 // Pre-build id→card lookup for O(1) access
 const CARD_MAP = {};
@@ -1084,7 +1131,7 @@ class Player {
         this.x = W / 2; this.y = H / 2;
         this.radius = 8;
         this.speed = 4;
-        this.hp = 60; this.maxHp = 60;
+        this.hp = 70; this.maxHp = 70;
         this.invTimer = 0;
         this.energy = 100; this.maxEnergy = 100;
         this.energyRegen = 10;
@@ -1102,7 +1149,7 @@ class Player {
     // Get effective max energy (affected by energycore card)
     getMaxEnergy() {
         const lv = this.cardLv('energycore');
-        return this.maxEnergy + Math.round(90 * lv / (lv + 2.5));
+        return this.maxEnergy + Math.round(130 * lv / (lv + 2.5));
     }
     update() {
         if (cardSelectActive) return;
@@ -1116,10 +1163,10 @@ class Player {
         const speedLv = this.cardLv('speedchip');
         const speedMul = 1 + 0.7 * speedLv / (speedLv + 2);       // cap ~+50%, Lv1=+23%
         const chargeLv = this.cardLv('quickcharge');
-        const regenMul = 1 + 1.8 * chargeLv / (chargeLv + 2);     // cap ~+150%, Lv1=+60%
+        const regenMul = 1 + 1.5 * chargeLv / (chargeLv + 2);     // cap ~+107%, Lv1=+50%
         const coreLv = this.cardLv('energycore');
-        const extraMaxE = Math.round(90 * coreLv / (coreLv + 2.5)); // cap ~+80
-        const extraRegen = 4.5 * coreLv / (coreLv + 2.5);           // cap ~+4/s
+        const extraMaxE = Math.round(130 * coreLv / (coreLv + 2.5)); // cap ~+87
+        const extraRegen = 7 * coreLv / (coreLv + 2.5);              // cap ~+4.7/s
         const effectiveMaxE = this.maxEnergy + extraMaxE;
 
         let dx = 0, dy = 0;
@@ -1143,12 +1190,18 @@ class Player {
         this.y = clamp(this.y, this.radius, H - this.radius);
         this.energy = Math.min(effectiveMaxE, this.energy + (this.energyRegen * regenMul + extraRegen) * dt);
         if (this.invTimer > 0) this.invTimer -= dt;
+        // Regen Armor: passive HP recovery (cap ~1.47 HP/s at Lv.5)
+        const regenLv = this.cardLv('regen');
+        if (regenLv > 0) {
+            const hpRegen = 2.2 * regenLv / (regenLv + 2.5); // Lv1=0.63, Lv3=1.20, Lv5=1.47
+            this.hp = Math.min(this.maxHp, this.hp + hpRegen * dt);
+        }
         this.shootCooldown -= dt;
 
-        // Bullet efficiency: diminishing cost reduction (cap ~-5.7)
+        // Bullet efficiency: diminishing cost reduction (cap ~-3.0)
         const bulletEffLv = this.cardLv('bulleteff');
-        const costReduce = 6.5 * bulletEffLv / (bulletEffLv + 2.5);
-        const actualShootCost = Math.max(2, this.shootCost - costReduce);
+        const costReduce = 4.5 * bulletEffLv / (bulletEffLv + 2.5);
+        const actualShootCost = Math.max(3.5, this.shootCost - costReduce);
         if (mouse.left && this.shootCooldown <= 0 && this.energy >= actualShootCost) {
             this.shoot(actualShootCost);
         }
@@ -1159,9 +1212,12 @@ class Player {
         const pierceLv = this.cardLv('pierce');
         const rapidLv = this.cardLv('rapidfire');
 
-        // Scatter: lv0=1, lv1=3, lv2=4, lv3=5, lv4=6, lv5=7 (hard cap 7)
-        const bulletCount = scatterLv === 0 ? 1 : Math.min(2 + scatterLv, 7);
+        // Scatter: always odd counts (center bullet for aiming)
+        // lv0=1, lv1=3, lv2=5, lv3=7, lv4=7, lv5=7
+        const bulletCount = [1, 3, 5, 7, 7, 7][scatterLv] || 1;
         const spreadAngle = scatterLv > 0 ? 0.24 : 0;
+        // Scatter Lv4-5: bonus damage per bullet
+        const scatterDmgBonus = scatterLv >= 5 ? 1.2 : scatterLv >= 4 ? 1.1 : 1;
         // Pierce: lv1=1, lv2=2, lv3-5=3 max, but higher levels add +10% damage
         const pierceCount = Math.min(pierceLv, 3);
         const pierceDmgBonus = pierceLv > 2 ? 1 + (pierceLv - 2) * 0.1 : 1;
@@ -1170,22 +1226,26 @@ class Player {
             if (bulletCount > 1) {
                 a = angle - spreadAngle * (bulletCount - 1) / 2 + spreadAngle * i;
             }
-            const b = new Bullet(this.x, this.y, a, 12, pierceDmgBonus, 'player');
+            // Scatter damage falloff: center bullet full damage, side bullets 0.6x
+            const centerIdx = Math.floor(bulletCount / 2);
+            const isCenter = (i === centerIdx) || bulletCount === 1;
+            const scatterPenalty = isCenter ? 1 : 0.6;
+            const b = new Bullet(this.x, this.y, a, 12, pierceDmgBonus * scatterDmgBonus * scatterPenalty, 'player');
             b.pierceLeft = pierceCount;
             bullets.push(b);
         }
         if (cost === undefined) cost = this.shootCost;
         this.energy -= cost;
-        // Rapid fire: diminishing returns (cap ~95% faster = 0.05x interval at Lv.5)
-        const rapidMul = 1 - 0.95 * rapidLv / (rapidLv + 2);  // Lv1=0.68, Lv3=0.43, Lv5=0.32
-        this.shootCooldown = this.shootInterval * Math.max(0.08, rapidMul);
+        // Rapid fire: diminishing returns (cap ~86% faster at Lv.5)
+        const rapidMul = 1 - 0.88 * rapidLv / (rapidLv + 2);  // Lv1=0.71, Lv3=0.47, Lv5=0.37
+        this.shootCooldown = this.shootInterval * Math.max(0.12, rapidMul);
         emitNoise(this.x, this.y, 200);
         SFX.shoot();
     }
     pulse() {
         const sonarEffLv = this.cardLv('sonareff');
-        const costReduce = 17 * sonarEffLv / (sonarEffLv + 2.5); // cap ~-15
-        const actualCost = Math.max(8, this.sonarCost - costReduce);
+        const costReduce = 19 * sonarEffLv / (sonarEffLv + 2.5); // cap ~-13
+        const actualCost = Math.max(6, this.sonarCost - costReduce);
         if (this.energy >= actualCost) {
             this.energy -= actualCost;
             SFX.sonar();
@@ -1207,6 +1267,7 @@ class Player {
             }
             spawnParticles(this.x, this.y, 12, '#00f2ff', 2);
             emitNoise(this.x, this.y, 350);
+            sessionStats.noSonarTimer = 0; // reset no-sonar timer
         }
     }
     takeDamage(amount) {
@@ -1270,8 +1331,8 @@ class Player {
         // Energy shield: reduce damage when energy > 50% of max
         let finalDmg = dmg;
         const eshieldLv = this.cardLv('energyshield');
-        if (eshieldLv > 0 && this.energy > this.getMaxEnergy() * 0.5) {
-            const reduction = 0.5 * eshieldLv / (eshieldLv + 2.5); // cap ~42%
+        if (eshieldLv > 0 && this.energy > this.getMaxEnergy() * 0.3) {
+            const reduction = 0.55 * eshieldLv / (eshieldLv + 2.5); // cap ~37%
             finalDmg = Math.ceil(dmg * (1 - reduction));
             spawnParticles(this.x, this.y, 6, '#00aaff', 2);
         }
@@ -1362,7 +1423,7 @@ class Player {
             ctx.font = '8px monospace';
             ctx.textAlign = 'center';
             ctx.globalAlpha = 0.7;
-            ctx.fillText('x2', this.x, this.y - this.radius - 10);
+            ctx.fillText('×2', this.x, this.y - this.radius - 10);
             ctx.globalAlpha = 1;
         }
     }
@@ -1486,11 +1547,11 @@ class Bullet {
         if (this.traveled > this.maxRange) { this.alive = false; return; }
         if (this.x < -20 || this.x > W + 20 || this.y < -20 || this.y > H + 20) { this.alive = false; return; }
         if (this.markedTimer > 0) this.markedTimer -= dt;
-        // Wall collision: bullets die on solid/fragile wall hit (reflect walls handled separately)
+        // Wall collision: bullets die on solid wall hit (reflect/fragile handled in handleCollisions)
         const bx = this.x, by = this.y;
         for (const w of walls) {
             if (w instanceof ReflectWall) continue;
-            if (w instanceof FragileWall && !w.alive) continue;
+            if (w instanceof FragileWall) continue; // both alive/dead skipped — handled in handleCollisions
             if (bx >= w.x && bx <= w.x + w.w && by >= w.y && by <= w.y + w.h) {
                 this.alive = false; return;
             }
@@ -1578,8 +1639,8 @@ class SupplyCrate {
                     break;
                 case 'data':
                     score += 50;
-                    player.scoreBonusTimer = 5;
-                    label = 'x2 SCORE!';
+                    player.scoreBonusTimer = 8;
+                    label = 'x2 SCORE 8s!';
                     break;
             }
             // Floating pickup text
@@ -1854,13 +1915,36 @@ class CardCrate {
 // ═══════════════════════════════════════════════════════════
 //  CARD SELECTION LOGIC
 // ═══════════════════════════════════════════════════════════
+// Card route definitions for smart offering
+const CARD_ROUTES = {
+    weapon: ['scatter', 'pierce', 'rapidfire'],
+    sonar:  ['echo', 'doublepulse', 'sonareff', 'sonarslow'],
+    survival: ['speedchip', 'energyharvest', 'energyshield', 'regen'],
+    energy: ['bulleteff', 'quickcharge', 'energycore']
+};
+function getPlayerRoute() {
+    // Find the route the player has invested most in
+    let bestRoute = null, bestTotal = 0;
+    for (const [route, ids] of Object.entries(CARD_ROUTES)) {
+        let total = 0;
+        for (const id of ids) total += player.cardLv(id);
+        if (total > bestTotal) { bestTotal = total; bestRoute = route; }
+    }
+    return bestTotal >= 2 ? bestRoute : null; // only bias if invested ≥2 levels
+}
 function rollCards(count) {
     // Weighted random, skip maxed-out cards (Lv.5)
     const available = CARD_DEFS.filter(c => player.cardLv(c.id) < 5);
     if (available.length === 0) return CARD_DEFS.slice(0, count); // all maxed fallback
+
+    // Time-based rarity boost: rare/epic more common as game progresses
+    const rarityBoost = clamp(gameTime / 300, 0, 1); // 0→1 over 5 min
     const pool = [];
     for (const c of available) {
-        const weight = c.rarity === 'common' ? 60 : c.rarity === 'rare' ? 30 : 10;
+        let weight = c.rarity === 'common' ? 60 : c.rarity === 'rare' ? 30 : 10;
+        // Boost rare/epic chances over time
+        if (c.rarity === 'rare') weight += Math.round(20 * rarityBoost);
+        if (c.rarity === 'epic') weight += Math.round(15 * rarityBoost);
         for (let i = 0; i < weight; i++) pool.push(c);
     }
     const selected = [];
@@ -1872,15 +1956,32 @@ function rollCards(count) {
             selected.push(pick);
         }
     }
+
+    // Smart offering: guarantee 1 card from player's invested route (if any)
+    const investedRoute = getPlayerRoute();
+    if (investedRoute && selected.length >= 2) {
+        const routeIds = new Set(CARD_ROUTES[investedRoute]);
+        const hasRouteCard = selected.some(c => routeIds.has(c.id));
+        if (!hasRouteCard) {
+            // Replace the last card with one from the invested route
+            const routeAvail = available.filter(c => routeIds.has(c.id) && !usedIds.has(c.id));
+            if (routeAvail.length > 0) {
+                const replacement = routeAvail[Math.floor(Math.random() * routeAvail.length)];
+                selected[selected.length - 1] = replacement;
+            }
+        }
+    }
+
     return selected;
 }
 
-function showCardSelection() {
+function showCardSelection(count) {
+    count = count || 3;
     cardSelectActive = true;
     const overlay = document.getElementById('cardOverlay');
     const container = document.getElementById('cardContainer');
     container.innerHTML = '';
-    const cards = rollCards(3);
+    const cards = rollCards(count);
     cards.forEach((card, idx) => {
         const currentLv = player.cardLv(card.id);
         const nextLv = currentLv + 1;
@@ -1933,12 +2034,12 @@ document.getElementById('btnSkipCard').onclick = hideCardSelection;
 const ENEMY_CFG = {
     drifter:  { hp: 1, speed: 2,   perception: 80,  size: 12, color: '#ff3355', score: 10, contactDmg: 10 },
     hunter:   { hp: 1, speed: 3,   perception: 180, size: 14, color: '#ff8800', score: 20, contactDmg: 15 },
-    turret:   { hp: 5, speed: 0,   perception: 220, size: 18, color: '#aa44ff', score: 80, bulletDmg: 18 },
-    sniper:   { hp: 2, speed: 0.5, perception: 9999,size: 13, color: '#ff2255', score: 60, bulletDmg: 20 },
-    hive:     { hp: 12, speed: 0,   perception: 0,   size: 24, color: '#33ff66', score: 80, contactDmg: 0 },
-    swarmling:{ hp: 1, speed: 3,   perception: 180, size: 6,  color: '#66ff88', score: 5,  contactDmg: 8 },
-    phantom:  { hp: 3, speed: 2,   perception: 200, size: 14, color: '#bb77ff', score: 40, contactDmg: 12 },
-    drainer:  { hp: 1, speed: 2,   perception: 150, size: 11, color: '#33aaff', score: 30, contactDmg: 0 },
+    turret:   { hp: 7, speed: 0,   perception: 220, size: 18, color: '#aa44ff', score: 90, bulletDmg: 18 },
+    sniper:   { hp: 3, speed: 0.5, perception: 9999,size: 13, color: '#ff2255', score: 70, bulletDmg: 22 },
+    hive:     { hp: 15, speed: 0,   perception: 0,   size: 24, color: '#33ff66', score: 100, contactDmg: 0 },
+    swarmling:{ hp: 1, speed: 3,   perception: 180, size: 6,  color: '#66ff88', score: 5,  contactDmg: 5 },
+    phantom:  { hp: 4, speed: 2,   perception: 200, size: 14, color: '#bb77ff', score: 50, contactDmg: 14 },
+    drainer:  { hp: 2, speed: 2,   perception: 150, size: 11, color: '#33aaff', score: 35, contactDmg: 0 },
 };
 
 class Enemy {
@@ -1961,10 +2062,14 @@ class Enemy {
         this.color = cfg.color;
         this.score = cfg.score;
         this.contactDmg = cfg.contactDmg || 10;
+        this.tier = 0;          // evolution tier (0=normal, 1=enhanced, 2=elite, 3=berserk)
+        this.tierDmgMul = 1;    // damage multiplier for ranged attacks
+        this.hitFlash = 0;      // white flash timer on hit
     }
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
         if (this.markedTimer <= 0) this.markIntensity = 0;
+        if (this.hitFlash > 0) this.hitFlash -= dt;
 
         const dToPlayer = dist(this.x, this.y, player.x, player.y);
         const hearsPlayer = this.canHearPlayer();
@@ -2028,8 +2133,9 @@ class Enemy {
                 } else {
                     // BLIND: confused wandering
                     this.patrolAngle += rand(-0.08, 0.08);
-                    this.x += Math.cos(this.patrolAngle) * this.speed * 0.15 * dt * 60;
-                    this.y += Math.sin(this.patrolAngle) * this.speed * 0.15 * dt * 60;
+                    const bs = this.eSpeed();
+                    this.x += Math.cos(this.patrolAngle) * bs * 0.15 * dt * 60;
+                    this.y += Math.sin(this.patrolAngle) * bs * 0.15 * dt * 60;
                     this.stateTimer += dt * 3;
                 }
                 if (this.stateTimer > 2) {
@@ -2080,31 +2186,43 @@ class Enemy {
         if (lineHitsWall(this.x, this.y, playerNoiseX, playerNoiseY)) return false;
         return d <= Math.min(playerNoiseRadius, this.perceptionRange);
     }
+    // Effective speed: apply sonar slow if marked
+    eSpeed() { return this.markedTimer > 0 ? this.speed * sonarSlowFactor : this.speed; }
     doPatrol() {
+        const s = this.eSpeed();
         if (this.type === 'drifter') {
-            this.x += Math.cos(this.patrolAngle) * this.speed * dt * 60;
-            this.y += Math.sin(this.patrolAngle) * this.speed * dt * 60;
+            this.x += Math.cos(this.patrolAngle) * s * dt * 60;
+            this.y += Math.sin(this.patrolAngle) * s * dt * 60;
         } else {
             this.patrolAngle += rand(-0.02, 0.02);
-            this.x += Math.cos(this.patrolAngle) * this.speed * 0.3 * dt * 60;
-            this.y += Math.sin(this.patrolAngle) * this.speed * 0.3 * dt * 60;
+            this.x += Math.cos(this.patrolAngle) * s * 0.3 * dt * 60;
+            this.y += Math.sin(this.patrolAngle) * s * 0.3 * dt * 60;
         }
     }
     doAlertMove(speedMul) {
+        const s = this.eSpeed();
         const angle = Math.atan2(this.lastKnownY - this.y, this.lastKnownX - this.x);
-        this.x += Math.cos(angle) * this.speed * speedMul * dt * 60;
-        this.y += Math.sin(angle) * this.speed * speedMul * dt * 60;
+        this.x += Math.cos(angle) * s * speedMul * dt * 60;
+        this.y += Math.sin(angle) * s * speedMul * dt * 60;
     }
     doSearch() {
+        const s = this.eSpeed();
         this.patrolAngle += rand(-0.05, 0.05);
-        this.x += Math.cos(this.patrolAngle) * this.speed * 0.4 * dt * 60;
-        this.y += Math.sin(this.patrolAngle) * this.speed * 0.4 * dt * 60;
+        this.x += Math.cos(this.patrolAngle) * s * 0.4 * dt * 60;
+        this.y += Math.sin(this.patrolAngle) * s * 0.4 * dt * 60;
     }
     takeDamage(dmg) {
         if (!this.alive) return;
         this.hp -= dmg;
         this.markedTimer = Math.max(this.markedTimer, 0.5);
         spawnParticles(this.x, this.y, 3, this.color, 2);
+        if (this.hp > 0) {
+            // Hit but not killed — feedback for multi-HP enemies
+            this.hitFlash = 0.12;
+            SFX.enemyHit();
+            // Floating damage number
+            pickupTexts.push({ x: this.x + rand(-8, 8), y: this.y - this.size - 5, text: '-' + dmg, color: '#ffffff', life: 0.5 });
+        }
         if (this.hp <= 0) {
             this.alive = false;
             // Apply double score if active
@@ -2114,17 +2232,18 @@ class Enemy {
             spawnParticles(this.x, this.y, 5, this.color, 2);
             // Show kill score (doubled if bonus active)
             if (actualScore > 0) {
-                const label = isDouble ? '+' + actualScore + ' x2' : '+' + actualScore;
+                const label = isDouble ? '+' + this.score + ' ×2' : '+' + actualScore;
                 const color = isDouble ? '#ffee44' : '#ffcc00';
                 pickupTexts.push({ x: this.x, y: this.y - 12, text: label, color: color, life: 0.8 });
             }
             // ALL enemies drop energy (100%)
-            const dropAmt = { drifter: 8, hunter: 15, turret: 18, sniper: 25, hive: 30, swarmling: 3, phantom: 18, drainer: 12 };
+            const dropAmt = { drifter: 10, hunter: 18, turret: 22, sniper: 30, hive: 35, swarmling: 3, phantom: 22, drainer: 15 };
             energyOrbs.push({ x: this.x, y: this.y, life: 10, amount: dropAmt[this.type] || 10 });
             SFX.hit();
             sessionStats.kills++;
             if (this.type === 'hive') sessionStats.hiveKills++;
             if (this.type === 'phantom') sessionStats.phantomKills++;
+            if (this.type === 'drainer') sessionStats.drainerKills++;
         }
     }
     draw() {
@@ -2153,6 +2272,22 @@ class Enemy {
         ctx.globalAlpha = vis;
         ctx.save();
         ctx.translate(this.x, this.y);
+
+        // Tier glow for evolved enemies
+        if (this.tier > 0 && vis > 0.05) {
+            const tierColors = ['', 'rgba(255,220,60,', 'rgba(255,140,40,', 'rgba(255,50,30,'];
+            const glowCol = tierColors[this.tier];
+            const pulse = 0.3 + Math.sin(performance.now() * 0.004 + this.x * 0.1) * 0.15;
+            const glowR = this.size + 4 + this.tier * 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, glowR, 0, Math.PI * 2);
+            ctx.strokeStyle = glowCol + (pulse * vis) + ')';
+            ctx.lineWidth = 1 + this.tier * 0.5;
+            ctx.stroke();
+            ctx.fillStyle = glowCol + (pulse * vis * 0.12) + ')';
+            ctx.fill();
+            ctx.lineWidth = 1;
+        }
 
         // Always use the enemy's own type color (never override to red)
         const isAggro = this.state === 'alert';
@@ -2233,6 +2368,17 @@ class Enemy {
                 ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI * 2); ctx.fill();
         }
 
+        // Hit flash overlay — white flash when damaged but not killed
+        if (this.hitFlash > 0) {
+            const flashAlpha = (this.hitFlash / 0.12) * 0.7;
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = flashAlpha * vis;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath(); ctx.arc(0, 0, s + 2, 0, Math.PI * 2); ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = vis;
+        }
+
         // State indicator
         if (vis > 0.2) {
             ctx.font = '10px monospace';
@@ -2275,6 +2421,7 @@ class Turret extends Enemy {
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
         if (this.markedTimer <= 0) this.markIntensity = 0;
+        if (this.hitFlash > 0) this.hitFlash -= dt;
 
         const dToPlayer = dist(this.x, this.y, player.x, player.y);
         this.engaged = dToPlayer < this.detectRadius;
@@ -2303,7 +2450,7 @@ class Turret extends Enemy {
                 // Fire with slight inaccuracy
                 const spread = rand(-0.1, 0.1);
                 const b = new Bullet(this.x, this.y, this.aimAngle + spread, 7, 1, 'enemy');
-                b.playerDmg = ENEMY_CFG.turret.bulletDmg;
+                b.playerDmg = Math.ceil(ENEMY_CFG.turret.bulletDmg * (this.tierDmgMul || 1));
                 b.markedTimer = 999; // turret bullets always visible
                 b.color = '#cc66ff';  // purple to match turret
                 bullets.push(b);
@@ -2334,10 +2481,16 @@ class Turret extends Enemy {
         this.hp -= dmg;
         this.markedTimer = Math.max(this.markedTimer, 0.5);
         spawnParticles(this.x, this.y, 6, this.color, 2);
+        if (this.hp > 0) {
+            this.hitFlash = 0.12;
+            SFX.enemyHit();
+            pickupTexts.push({ x: this.x + rand(-8, 8), y: this.y - this.size - 5, text: '-' + dmg, color: '#ffffff', life: 0.5 });
+        }
         if (this.hp <= 0) {
             this.alive = false;
             const isDouble = player && player.scoreBonusTimer > 0;
-            const turretScore = isDouble ? 160 : 80;
+            const baseScore = 80;
+            const turretScore = isDouble ? baseScore * 2 : baseScore;
             score += turretScore;
             spawnParticles(this.x, this.y, 12, this.color, 3);
             spawnParticles(this.x, this.y, 8, '#ffcc00', 2);
@@ -2347,7 +2500,7 @@ class Turret extends Enemy {
             energyOrbs.push({ x: this.x, y: this.y, life: 12, amount: 25 });
             // Pickup text
             if (typeof pickupTexts !== 'undefined') {
-                const tLabel = isDouble ? 'TURRET DOWN! +' + turretScore + ' x2' : 'TURRET DOWN!';
+                const tLabel = isDouble ? 'TURRET DOWN! +' + baseScore + ' ×2' : 'TURRET DOWN! +' + baseScore;
                 pickupTexts.push({ x: this.x, y: this.y - 20, text: tLabel, color: isDouble ? '#ffee44' : '#ffcc00', life: 2 });
                 pickupTexts.push({ x: this.x, y: this.y, text: 'HP+30  E+30', color: '#aa44ff', life: 1.8 });
             }
@@ -2456,11 +2609,13 @@ class Sniper extends Enemy {
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
         if (this.markedTimer <= 0) this.markIntensity = 0;
+        if (this.hitFlash > 0) this.hitFlash -= dt;
 
         // Slow drift
+        const ss = this.eSpeed();
         this.patrolAngle += rand(-0.008, 0.008);
-        this.x += Math.cos(this.patrolAngle) * this.speed * dt * 60;
-        this.y += Math.sin(this.patrolAngle) * this.speed * dt * 60;
+        this.x += Math.cos(this.patrolAngle) * ss * dt * 60;
+        this.y += Math.sin(this.patrolAngle) * ss * dt * 60;
         this.x = clamp(this.x, 40, W - 40);
         this.y = clamp(this.y, 40, H - 40);
 
@@ -2520,7 +2675,7 @@ class Sniper extends Enemy {
             if (this.chargeTimer >= this.chargeMax) {
                 const angle = Math.atan2(this.targetY - this.y, this.targetX - this.x);
                 const b = new Bullet(this.x, this.y, angle, 18, 2, 'enemy');
-                b.playerDmg = ENEMY_CFG.sniper.bulletDmg;
+                b.playerDmg = Math.ceil(ENEMY_CFG.sniper.bulletDmg * (this.tierDmgMul || 1));
                 b.color = '#ff4444';
                 b.radius = 4;
                 b.maxRange = 1500; // sniper: extreme range
@@ -2618,6 +2773,7 @@ class Hive extends Enemy {
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
         if (this.markedTimer <= 0) this.markIntensity = 0;
+        if (this.hitFlash > 0) this.hitFlash -= dt;
         // No movement, no perception — just spawns
         this.spawnTimer -= dt;
         // Cap swarmlings at 10 total on map
@@ -2689,6 +2845,7 @@ class Phantom extends Enemy {
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
         if (this.markedTimer <= 0) this.markIntensity = 0;
+        if (this.hitFlash > 0) this.hitFlash -= dt;
         const dToPlayer = dist(this.x, this.y, player.x, player.y);
         // Phantom senses THROUGH walls — ignores lineHitsWall
         const sensesPlayer = dToPlayer < this.perceptionRange;
@@ -2699,8 +2856,9 @@ class Phantom extends Enemy {
             const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
             this.driftAngle = lerp(this.driftAngle, toPlayer, 0.04);
             this.driftAngle += Math.sin(this.phaseTimer * 3) * 0.08;
-            this.x += Math.cos(this.driftAngle) * this.speed * dt * 60;
-            this.y += Math.sin(this.driftAngle) * this.speed * dt * 60;
+            const ps = this.eSpeed();
+            this.x += Math.cos(this.driftAngle) * ps * dt * 60;
+            this.y += Math.sin(this.driftAngle) * ps * dt * 60;
             this.state = 'alert';
             // Contact damage
             if (dToPlayer < this.size + player.radius + 3) {
@@ -2709,8 +2867,9 @@ class Phantom extends Enemy {
         } else {
             // Random drift
             this.driftAngle += rand(-0.05, 0.05);
-            this.x += Math.cos(this.driftAngle) * this.speed * 0.3 * dt * 60;
-            this.y += Math.sin(this.driftAngle) * this.speed * 0.3 * dt * 60;
+            const pd = this.eSpeed();
+            this.x += Math.cos(this.driftAngle) * pd * 0.3 * dt * 60;
+            this.y += Math.sin(this.driftAngle) * pd * 0.3 * dt * 60;
             this.state = 'patrol';
         }
         // Phantom does NOT collide with walls — phases through
@@ -2747,6 +2906,7 @@ class Drainer extends Enemy {
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
         if (this.markedTimer <= 0) this.markIntensity = 0;
+        if (this.hitFlash > 0) this.hitFlash -= dt;
         const dToPlayer = dist(this.x, this.y, player.x, player.y);
         const hearsPlayer = this.canHearPlayer();
         const sensesPlayer = dToPlayer < 80;
@@ -2820,11 +2980,14 @@ class Boss {
         this.score = 200;
         this.attackTimer = 0;
         this.phaseTimer = 0;
+        this.hitFlash = 0;
     }
     takeDamage(dmg) {
         if (!this.alive) return; // already dead, ignore further hits this frame
         this.hp -= dmg;
         this.markedTimer = Math.max(this.markedTimer, 1);
+        this.hitFlash = 0.1;
+        SFX.enemyHit();
         spawnParticles(this.x, this.y, 3, '#ffffff', 2);
         if (this.hp <= 0) {
             this.alive = false;
@@ -2834,21 +2997,32 @@ class Boss {
             score += actualScore;
             spawnParticles(this.x, this.y, 20, '#ffcc00', 4);
             spawnParticles(this.x, this.y, 10, '#ffffff', 3);
-            // Boss drop: card crate + HP + energy
-            spawnCardCrate();
+            // Boss drop: premium card selection (4 choices) + HP + energy
+            showCardSelection(4);
             player.hp = Math.min(player.maxHp, player.hp + 30);
             player.energy = Math.min(player.getMaxEnergy(), player.energy + 50);
             energyOrbs.push({ x: this.x, y: this.y, life: 15, amount: 40 });
-            const bossLabel = isDouble ? 'BOSS DOWN! +' + actualScore + ' x2' : 'BOSS DOWN! +' + actualScore;
+            const bossLabel = isDouble ? 'BOSS DOWN! +' + this.score + ' ×2' : 'BOSS DOWN! +' + this.score;
             pickupTexts.push({ x: this.x, y: this.y - 30, text: bossLabel, color: isDouble ? '#ffee44' : '#ffcc00', life: 3 });
             pickupTexts.push({ x: this.x, y: this.y, text: 'HP+30 ENERGY+50', color: '#66ffcc', life: 2.5 });
             SFX.bossDead(); SFX.explosion();
             sessionStats.bossKills++;
+            sessionStats.bossTypesKilled.add(this.type);
         }
     }
-    update() {}
+    update() { if (this.hitFlash > 0) this.hitFlash -= dt; }
     draw() {}
     drawHPBar() {
+        // Hit flash overlay for boss
+        if (this.hitFlash > 0) {
+            const flashAlpha = (this.hitFlash / 0.1) * 0.5;
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = flashAlpha;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.size + 3, 0, Math.PI * 2); ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+        }
         const w = 80, h = 5;
         const pct = this.hp / this.maxHp;
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -2870,6 +3044,7 @@ class BossSatellite extends Boss {
         this.attackTimer = 3;
     }
     update() {
+        super.update();
         if (this.markedTimer > 0) this.markedTimer -= dt;
         this.phaseTimer += dt;
         this.angle += 0.8 * dt;
@@ -2931,6 +3106,7 @@ class BossSplitMother extends Boss {
         this.pathAngle = rand(0, Math.PI * 2);
     }
     update() {
+        super.update();
         if (this.markedTimer > 0) this.markedTimer -= dt;
         this.phaseTimer += dt;
         // Chase player (not just drift)
@@ -2988,10 +3164,10 @@ class BossSplitMother extends Boss {
     }
 }
 
-// Boss 3: Signal Jammer (270s) — reduces sonar effectiveness nearby
+// Boss 3: Signal Jammer (360s) — reduces sonar effectiveness nearby
 class BossJammer extends Boss {
     constructor() {
-        super('jammer', 22, rand(100, W - 100), rand(100, H - 100));
+        super('jammer', 28, rand(100, W - 100), rand(100, H - 100));
         this.score = 500;
         this.size = 38;
         this.jamRadius = 180;
@@ -3002,6 +3178,7 @@ class BossJammer extends Boss {
         }
     }
     update() {
+        super.update();
         if (this.markedTimer > 0) this.markedTimer -= dt;
         this.phaseTimer += dt;
         // Chase player
@@ -3020,11 +3197,8 @@ class BossJammer extends Boss {
                 bullets.push(b);
             }
         }
-        // Jam aura: reduce mark timer of enemies near this boss (makes sonar less effective)
-        // This is handled in handleCollisions pulse section
     }
     draw() {
-        // Jam radius visual — static-filled zone
         const jamAlpha = 0.04 + Math.sin(performance.now() * 0.003) * 0.02;
         ctx.fillStyle = 'rgba(200,200,220,' + jamAlpha + ')';
         ctx.beginPath(); ctx.arc(this.x, this.y, this.jamRadius, 0, Math.PI * 2); ctx.fill();
@@ -3032,7 +3206,6 @@ class BossJammer extends Boss {
         ctx.setLineDash([3, 5]);
         ctx.beginPath(); ctx.arc(this.x, this.y, this.jamRadius, 0, Math.PI * 2); ctx.stroke();
         ctx.setLineDash([]);
-        // Body — irregular polygon with static
         const sonarVis = this.markedTimer > 0 ? clamp(this.markedTimer / 0.5, 0, 1) : 0;
         const vis = Math.max(0.18, sonarVis);
         ctx.globalAlpha = vis;
@@ -3047,12 +3220,203 @@ class BossJammer extends Boss {
         }
         ctx.closePath(); ctx.fill();
         ctx.globalAlpha = 1;
-        // Static sparks
         for (let i = 0; i < 3; i++) {
             ctx.fillStyle = '#ffffff';
             ctx.globalAlpha = 0.3 + Math.random() * 0.3;
             ctx.fillRect(this.x + rand(-this.size, this.size), this.y + rand(-this.size, this.size), 2, 2);
         }
+        ctx.globalAlpha = 1;
+        this.drawHPBar();
+    }
+}
+
+// Boss 4: Phantom Lord (480s) — phases through walls, teleports, summons phantoms
+class BossPhantomLord extends Boss {
+    constructor() {
+        super('phantomlord', 35, rand(100, W - 100), rand(100, H - 100));
+        this.score = 600;
+        this.size = 36;
+        this.attackTimer = 2.5;
+        this.teleportTimer = 8;
+        this.summonTimer = 12;
+        this.driftAngle = rand(0, Math.PI * 2);
+        this.teleportFlash = 0;
+    }
+    update() {
+        super.update();
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        this.phaseTimer += dt;
+        if (this.teleportFlash > 0) this.teleportFlash -= dt;
+        // Erratic pursuit — drifts toward player (phases through walls)
+        const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
+        this.driftAngle = lerp(this.driftAngle, toPlayer, 0.03);
+        this.driftAngle += Math.sin(this.phaseTimer * 2) * 0.06;
+        this.x += Math.cos(this.driftAngle) * 1.8 * dt * 60;
+        this.y += Math.sin(this.driftAngle) * 1.8 * dt * 60;
+        this.x = clamp(this.x, 30, W - 30); this.y = clamp(this.y, 30, H - 30);
+        // Teleport every 8s
+        this.teleportTimer -= dt;
+        if (this.teleportTimer <= 0) {
+            this.teleportTimer = 7 + rand(0, 3);
+            spawnParticles(this.x, this.y, 10, '#bb77ff', 4);
+            const a = rand(0, Math.PI * 2);
+            const d = rand(120, 250);
+            this.x = clamp(player.x + Math.cos(a) * d, 50, W - 50);
+            this.y = clamp(player.y + Math.sin(a) * d, 50, H - 50);
+            this.teleportFlash = 0.5;
+            spawnParticles(this.x, this.y, 10, '#bb77ff', 4);
+        }
+        // Fire 6 homing bolts every 2.5s
+        this.attackTimer -= dt;
+        if (this.attackTimer <= 0) {
+            this.attackTimer = 2.5;
+            const toP = Math.atan2(player.y - this.y, player.x - this.x);
+            for (let i = 0; i < 6; i++) {
+                const ba = toP + (Math.PI * 2 / 6) * i;
+                const b = new Bullet(this.x, this.y, ba, 4, 1, 'enemy');
+                b.playerDmg = 12; b.markedTimer = 999; b.color = '#bb77ff'; b.radius = 3;
+                bullets.push(b);
+            }
+            spawnParticles(this.x, this.y, 6, '#9955dd', 2);
+        }
+        // Summon 2 phantoms every 12s
+        this.summonTimer -= dt;
+        if (this.summonTimer <= 0) {
+            this.summonTimer = 11 + rand(0, 3);
+            let pCount = 0;
+            for (const e of enemies) { if (e.type === 'phantom' && e.alive) pCount++; }
+            const spawn = Math.min(2, Math.max(0, 6 - pCount));
+            for (let i = 0; i < spawn; i++) {
+                const a = rand(0, Math.PI * 2);
+                const px = this.x + Math.cos(a) * 50;
+                const py = this.y + Math.sin(a) * 50;
+                const ph = new Phantom(px, py);
+                ph.markedTimer = 2; ph.markIntensity = 1;
+                enemies.push(ph);
+            }
+            if (spawn > 0) pickupTexts.push({ x: this.x, y: this.y - 20, text: '⚠ 幻影召唤!', color: '#bb77ff', life: 2 });
+        }
+    }
+    draw() {
+        const sonarVis = this.markedTimer > 0 ? clamp(this.markedTimer / 0.5, 0, 1) : 0;
+        const vis = Math.max(0.15, sonarVis);
+        const flash = this.teleportFlash > 0 ? 0.6 : 0;
+        ctx.globalAlpha = Math.min(1, vis + flash);
+        // Ethereal body — double circle with wavy edges
+        ctx.save(); ctx.translate(this.x, this.y);
+        ctx.fillStyle = '#9944cc';
+        ctx.beginPath();
+        for (let i = 0; i < 12; i++) {
+            const a = (Math.PI * 2 / 12) * i;
+            const wobble = this.size + Math.sin(this.phaseTimer * 3 + i * 1.2) * 5;
+            const px = Math.cos(a) * wobble, py = Math.sin(a) * wobble;
+            i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath(); ctx.fill();
+        // Inner eye
+        ctx.fillStyle = '#ffaaff';
+        ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#440066';
+        ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        ctx.globalAlpha = 1;
+        this.drawHPBar();
+    }
+}
+
+// Boss 5: Overload Core (600s) — final boss, spiral bullets + phase 2 frenzy
+class BossOverload extends Boss {
+    constructor() {
+        super('overload', 50, W / 2, H / 2);
+        this.score = 1000;
+        this.size = 45;
+        this.attackTimer = 0.4;
+        this.spiralAngle = 0;
+        this.summonTimer = 15;
+        this.phase2 = false;
+    }
+    update() {
+        super.update();
+        if (this.markedTimer > 0) this.markedTimer -= dt;
+        this.phaseTimer += dt;
+        // Enter phase 2 below 50% HP
+        if (!this.phase2 && this.hp <= this.maxHp * 0.5) {
+            this.phase2 = true;
+            pickupTexts.push({ x: this.x, y: this.y - 30, text: '⚠ 过载模式!', color: '#ff0000', life: 3 });
+            spawnParticles(this.x, this.y, 20, '#ff4400', 5);
+        }
+        const spd = this.phase2 ? 2.2 : 1.2;
+        const toP = Math.atan2(player.y - this.y, player.x - this.x);
+        this.x += Math.cos(toP) * spd * dt * 60;
+        this.y += Math.sin(toP) * spd * dt * 60;
+        this.x = clamp(this.x, 50, W - 50); this.y = clamp(this.y, 50, H - 50);
+        // Spiral bullet pattern
+        const fireRate = this.phase2 ? 0.15 : 0.35;
+        this.attackTimer -= dt;
+        if (this.attackTimer <= 0) {
+            this.attackTimer = fireRate;
+            this.spiralAngle += this.phase2 ? 0.7 : 0.5;
+            const arms = this.phase2 ? 4 : 2;
+            for (let i = 0; i < arms; i++) {
+                const ba = this.spiralAngle + (Math.PI * 2 / arms) * i;
+                const b = new Bullet(this.x, this.y, ba, this.phase2 ? 5.5 : 4, 1, 'enemy');
+                b.playerDmg = this.phase2 ? 18 : 12;
+                b.markedTimer = 999;
+                b.color = this.phase2 ? '#ff2200' : '#ff6633';
+                b.radius = this.phase2 ? 4 : 3;
+                bullets.push(b);
+            }
+        }
+        // Summon mixed enemies
+        this.summonTimer -= dt;
+        if (this.summonTimer <= 0) {
+            this.summonTimer = this.phase2 ? 8 : 14;
+            const types = ['hunter', 'drifter', 'phantom'];
+            const count = this.phase2 ? 3 : 2;
+            for (let i = 0; i < count; i++) {
+                const type = types[Math.floor(rand(0, types.length))];
+                const a = rand(0, Math.PI * 2);
+                const ex = clamp(this.x + Math.cos(a) * 80, 30, W - 30);
+                const ey = clamp(this.y + Math.sin(a) * 80, 30, H - 30);
+                let e;
+                if (type === 'phantom') e = new Phantom(ex, ey);
+                else e = new Enemy(type, ex, ey);
+                e.state = 'alert'; e.lastKnownX = player.x; e.lastKnownY = player.y;
+                e.markedTimer = 2; e.markIntensity = 1;
+                enemies.push(e);
+            }
+            pickupTexts.push({ x: this.x, y: this.y - 20, text: '⚠ 增援!', color: '#ff4400', life: 1.5 });
+        }
+    }
+    draw() {
+        const sonarVis = this.markedTimer > 0 ? clamp(this.markedTimer / 0.5, 0, 1) : 0;
+        const vis = Math.max(0.2, sonarVis);
+        ctx.globalAlpha = vis;
+        // Pulsing core
+        const pulse = 0.8 + Math.sin(performance.now() * 0.005) * 0.2;
+        const coreColor = this.phase2 ? '#ff2200' : '#ff6633';
+        ctx.fillStyle = coreColor;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.size * pulse, 0, Math.PI * 2); ctx.fill();
+        // Electric arcs
+        ctx.strokeStyle = this.phase2 ? '#ffaa00' : '#ffcc66';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < (this.phase2 ? 8 : 5); i++) {
+            const a = (Math.PI * 2 / (this.phase2 ? 8 : 5)) * i + this.phaseTimer * 1.5;
+            const r1 = this.size * 0.6;
+            const r2 = this.size * (1.2 + Math.sin(performance.now() * 0.008 + i) * 0.3);
+            ctx.beginPath();
+            ctx.moveTo(this.x + Math.cos(a) * r1, this.y + Math.sin(a) * r1);
+            // Jagged arc
+            const mid = a + 0.15;
+            ctx.lineTo(this.x + Math.cos(mid) * (r1 + r2) * 0.55, this.y + Math.sin(mid) * (r1 + r2) * 0.55);
+            ctx.lineTo(this.x + Math.cos(a) * r2, this.y + Math.sin(a) * r2);
+            ctx.stroke();
+        }
+        ctx.lineWidth = 1;
+        // Inner white core
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = vis * (0.5 + Math.sin(performance.now() * 0.01) * 0.3);
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.size * 0.3, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
         this.drawHPBar();
     }
@@ -3230,6 +3594,20 @@ function spawnEnemy(type) {
         e = new Enemy(type, x, y);
         e.patrolAngle = Math.atan2(ty - y, tx - x);
     }
+    // ── Enemy evolution tier based on game time ──
+    const tier = gameTime < 186 ? 0 : (gameTime < 335 ? 1 : (gameTime < 463 ? 2 : 3));
+    e.tier = tier;
+    if (tier > 0) {
+        const hpMul  = [1, 1.3, 1.75, 2.3][tier];
+        const spdMul = [1, 1.1, 1.2, 1.3][tier];
+        const dmgMul = [1, 1.15, 1.3, 1.5][tier];
+        e.hp = Math.ceil(e.hp * hpMul);
+        e.speed *= spdMul;
+        e.contactDmg = Math.ceil(e.contactDmg * dmgMul);
+        e.tierDmgMul = dmgMul;
+        e.size *= (1 + tier * 0.04); // slightly larger
+        e.score = Math.ceil(e.score * (1 + tier * 0.2)); // more score reward
+    }
     enemies.push(e);
 }
 
@@ -3252,126 +3630,185 @@ function spawnCardCrate() {
 }
 
 let wallPhase = 0; // track which wall phase we've generated
+let shownEvolveTier = 0; // track evolution tier notifications
+let breathEvents = [false, false, false]; // track 83s section-break events per loop
+// Boss schedule (must persist across frames)
+// Boss schedule — aligned to music beats -2s for latency (212s loop)
+const BOSS_SCHEDULE = [
+    { time: 123, cls: 'satellite',    label: '⚠ BOSS: 核心卫星',    color: '#ff4466',  spawned: false },  // L1:125s beat
+    { time: 251, cls: 'splitmom',     label: '⚠ BOSS: 分裂母体',    color: '#ff3355',  spawned: false },  // L2:41s beat
+    { time: 398, cls: 'jammer',       label: '⚠ BOSS: 信号干扰者',  color: '#ddeeff',  spawned: false },  // L2:188s beat
+    { time: 484, cls: 'phantomlord',  label: '⚠ BOSS: 幽灵领主',    color: '#bb77ff',  spawned: false },  // L3:62s beat
+    { time: 610, cls: 'overload',     label: '⚠ FINAL BOSS: 过载核心', color: '#ff2200', spawned: false }, // L3:188s beat
+];
+function createBoss(type) {
+    switch (type) {
+        case 'satellite': return new BossSatellite();
+        case 'splitmom': return new BossSplitMother();
+        case 'jammer': return new BossJammer();
+        case 'phantomlord': return new BossPhantomLord();
+        case 'overload': return new BossOverload();
+    }
+}
 
 function updateSpawning() {
     const t = gameTime;
-    const diffMul = 1 + t / 180; // slower difficulty ramp (was /120)
+    // ── 10-minute gentle difficulty ramp ──
+    const diffMul = 1 + t / 300;
 
     // ── Count enemies by type for caps ──
     const eCounts = {};
     for (const e of enemies) { eCounts[e.type] = (eCounts[e.type] || 0) + 1; }
     const totalEnemies = enemies.length;
 
-    // ── Global enemy cap: prevents overwhelming swarms ──
-    const globalCap = Math.min(25 + Math.floor(t / 60) * 5, 50); // 25→30→35→...→50 max
+    // ── Global enemy cap: grows slowly over 10 min ──
+    const globalCap = Math.min(22 + Math.floor(t / 75) * 4, 55);
 
-    // ── Wall phase transitions ──
-    if (wallPhase === 0 && t >= 60) {
+    // ── Enemy evolution tier notifications (aligned to music beats -2s) ──
+    const curTier = t < 186 ? 0 : (t < 335 ? 1 : (t < 463 ? 2 : 3));
+    if (curTier > shownEvolveTier) {
+        shownEvolveTier = curTier;
+        const msgs = ['', '⚠ 敌人开始强化！', '⚠ 精英敌人出现！', '⚠ 敌人进入狂暴状态！'];
+        const cols = ['', '#ffdd44', '#ff8833', '#ff3322'];
+        pickupTexts.push({ x: W / 2, y: H / 2 - 80, text: msgs[curTier], color: cols[curTier], life: 3.5 });
+    }
+
+    // ── Wall phase transitions (aligned to music beats -2s) ──
+    if (wallPhase === 0 && t >= 60) {           // L1:62s accent -2
         wallPhase = 1;
         generateWalls(1);
         pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '⚠ 环境变化：墙体出现', color: '#00b8dc', life: 3 });
-    } else if (wallPhase === 1 && t >= 150) {
+    } else if (wallPhase === 1 && t >= 210) {   // L2:0s accent -2
         wallPhase = 2;
         generateWalls(2);
-        pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '⚠ 地形复杂化', color: '#ff8800', life: 3 });
+        pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '⚠ 地形复杂化：脆弱墙出现', color: '#ff8800', life: 3 });
+    } else if (wallPhase === 2 && t >= 355) {   // L2:145s accent -2
+        wallPhase = 3;
+        generateWalls(3);
+        pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '⚠ 复杂地形：反射墙出现', color: '#bbddff', life: 3 });
+    }
+
+    // ── Resupply events (filling gaps between major beats) ──
+    // L1:104s accent -2 = 102s — supplies before Boss 1 at 123
+    if (!breathEvents[0] && t >= 102 && t < 105) {
+        breathEvents[0] = true;
+        for (let i = 0; i < 3; i++) spawnSupplyCrate();
+        spawnCardCrate();
+        pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '📦 补给空投', color: '#66ffcc', life: 2.5 });
+    }
+    // L2:83s = 295s -2 = 293s — mid-game resupply before phantom wave at 314
+    if (!breathEvents[1] && t >= 293 && t < 296) {
+        breathEvents[1] = true;
+        for (let i = 0; i < 3; i++) spawnSupplyCrate();
+        spawnCardCrate();
+        pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '📦 紧急补给', color: '#66ffcc', life: 2.5 });
+    }
+    // L3:83s = 507s -2 = 505s — late-game full resupply before final stretch
+    if (!breathEvents[2] && t >= 505 && t < 508) {
+        breathEvents[2] = true;
+        for (let i = 0; i < 4; i++) spawnSupplyCrate();
+        spawnCardCrate();
+        pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '📦 最终补给', color: '#ffcc00', life: 2.5 });
     }
 
     // ── Spawn helpers: respect caps ──
     const canSpawn = (type, cap) => totalEnemies < globalCap && (eCounts[type] || 0) < cap;
 
-    // Drifters: steady presence, cap 12
+    // ── PHASE 1 (0-39s): Drifters only — learn basics ──
     spawnTimers.drifter = (spawnTimers.drifter || 0) - dt;
     if (spawnTimers.drifter <= 0 && canSpawn('drifter', 12)) {
-        // Spawn 1-2 drifters at once in early game to keep pressure
-        const drifterBatch = t < 60 && (eCounts.drifter || 0) < 4 ? 2 : 1;
+        const drifterBatch = t < 60 ? 1 : (t < 210 ? 2 : 2);
         for (let i = 0; i < drifterBatch; i++) { if (canSpawn('drifter', 12)) spawnEnemy('drifter'); }
-        spawnTimers.drifter = Math.max(1.2, 2.8 / diffMul);
+        spawnTimers.drifter = Math.max(1.5, 3.2 / diffMul);
     } else if (spawnTimers.drifter <= 0) {
-        spawnTimers.drifter = 1.5;
+        spawnTimers.drifter = 1.8;
     }
 
-    // Hunters: after 30s, cap 6
-    if (t > 30) {
+    // ── PHASE 2 (39s+): Hunters join — L1:41s accent -2 ──
+    if (t > 39) {
         spawnTimers.hunter = (spawnTimers.hunter || 0) - dt;
         if (spawnTimers.hunter <= 0 && canSpawn('hunter', 6)) {
             spawnEnemy('hunter');
-            spawnTimers.hunter = Math.max(3, 7 / diffMul);
-        } else if (spawnTimers.hunter <= 0) spawnTimers.hunter = 3;
+            spawnTimers.hunter = Math.max(3.5, 8 / diffMul);
+        } else if (spawnTimers.hunter <= 0) spawnTimers.hunter = 3.5;
     }
 
-    // Turrets: after 60s, cap 3
-    if (t > 60) {
+    // ── PHASE 3 (81s+): Turrets join — L1:83s 段落 -2 (静态敌人配安静段落) ──
+    if (t > 81) {
         spawnTimers.turret = (spawnTimers.turret || 0) - dt;
         if (spawnTimers.turret <= 0 && canSpawn('turret', 3)) {
             spawnEnemy('turret');
-            spawnTimers.turret = Math.max(12, 25 / diffMul);
-        } else if (spawnTimers.turret <= 0) spawnTimers.turret = 8;
+            spawnTimers.turret = Math.max(14, 28 / diffMul);
+        } else if (spawnTimers.turret <= 0) spawnTimers.turret = 10;
     }
 
-    // Snipers: after 100s, cap 2
-    if (t > 100) {
+    // ── PHASE 4 (143s+): Snipers join — L1:145s accent -2 ──
+    if (t > 143) {
         spawnTimers.sniper = (spawnTimers.sniper || 0) - dt;
         if (spawnTimers.sniper <= 0 && canSpawn('sniper', 2)) {
             spawnEnemy('sniper');
-            spawnTimers.sniper = Math.max(10, 22 / diffMul);
-        } else if (spawnTimers.sniper <= 0) spawnTimers.sniper = 8;
+            spawnTimers.sniper = Math.max(12, 25 / diffMul);
+        } else if (spawnTimers.sniper <= 0) spawnTimers.sniper = 10;
     }
 
-    // Hives: after 140s, cap 2
-    if (t > 140) {
+    // ── PHASE 5 (230s+): Hives join — L2:20s accent -2 ──
+    if (t > 230) {
         spawnTimers.hive = (spawnTimers.hive || 0) - dt;
         if (spawnTimers.hive <= 0 && canSpawn('hive', 2)) {
             spawnEnemy('hive');
-            spawnTimers.hive = Math.max(18, 35 / diffMul);
-        } else if (spawnTimers.hive <= 0) spawnTimers.hive = 12;
+            spawnTimers.hive = Math.max(20, 38 / diffMul);
+        } else if (spawnTimers.hive <= 0) spawnTimers.hive = 14;
     }
 
-    // Phantoms: after 180s, cap 3
-    if (t > 180) {
+    // ── PHASE 6 (314s+): Phantoms join — L2:104s accent -2 ──
+    if (t > 314) {
         spawnTimers.phantom = (spawnTimers.phantom || 0) - dt;
         if (spawnTimers.phantom <= 0 && canSpawn('phantom', 3)) {
             spawnEnemy('phantom');
-            spawnTimers.phantom = Math.max(8, 18 / diffMul);
-        } else if (spawnTimers.phantom <= 0) spawnTimers.phantom = 6;
+            spawnTimers.phantom = Math.max(10, 22 / diffMul);
+        } else if (spawnTimers.phantom <= 0) spawnTimers.phantom = 8;
     }
 
-    // Drainers: after 200s, cap 2
-    if (t > 200) {
+    // ── PHASE 7 (422s+): Drainers join — L3:0s accent -2 ──
+    if (t > 422) {
         spawnTimers.drainer = (spawnTimers.drainer || 0) - dt;
         if (spawnTimers.drainer <= 0 && canSpawn('drainer', 2)) {
             spawnEnemy('drainer');
-            spawnTimers.drainer = Math.max(10, 24 / diffMul);
-        } else if (spawnTimers.drainer <= 0) spawnTimers.drainer = 8;
+            spawnTimers.drainer = Math.max(12, 26 / diffMul);
+        } else if (spawnTimers.drainer <= 0) spawnTimers.drainer = 10;
     }
 
-    // ── Boss spawning — every 120 seconds (first at 120s) ──
-    if (!activeBoss && bossWarningTimer <= 0 && t >= 118) {
-        const bossInterval = 120;
-        const bossNum = Math.floor(t / bossInterval); // 1 at 90s, 2 at 180s, 3+ at 270s+
-        const nextBossTime = bossNum * bossInterval;
-        if (bossNum >= 1 && t >= nextBossTime && t < nextBossTime + 2) {
-            SFX.bossWarn();
-            if (bossNum === 1) {
-                activeBoss = new BossSatellite();
-                pickupTexts.push({ x: W / 2, y: H / 2 - 60, text: '⚠ BOSS: 核心卫星', color: '#ff4466', life: 3 });
-            } else if (bossNum === 2) {
-                activeBoss = new BossSplitMother();
-                pickupTexts.push({ x: W / 2, y: H / 2 - 60, text: '⚠ BOSS: 分裂母体', color: '#ff3355', life: 3 });
-            } else if (bossNum >= 3) {
-                activeBoss = new BossJammer();
-                pickupTexts.push({ x: W / 2, y: H / 2 - 60, text: '⚠ BOSS: 信号干扰者', color: '#ddeeff', life: 3 });
+    // ── Boss spawning — 5 unique bosses across 10 minutes ──
+    if (!activeBoss && bossWarningTimer <= 0) {
+        for (const entry of BOSS_SCHEDULE) {
+            if (!entry.spawned && t >= entry.time && t < entry.time + 3) {
+                entry.spawned = true;
+                SFX.bossWarn();
+                activeBoss = createBoss(entry.cls);
+                pickupTexts.push({ x: W / 2, y: H / 2 - 60, text: entry.label, color: entry.color, life: 3 });
+                bossWarningTimer = 5;
+                break;
             }
-            bossWarningTimer = 5; // prevent re-spawn for 5s
+        }
+        // After all 5 bosses: cycle harder versions every 120s
+        const allSpawned = BOSS_SCHEDULE.every(e => e.spawned);
+        if (allSpawned && t > 738) {   // L3+: 740s accent -2
+            const cycleT = t - 738;
+            const cycleIdx = Math.floor(cycleT / 120);
+            const nextTime = 738 + cycleIdx * 120;
+            if (t >= nextTime && t < nextTime + 3) {
+                SFX.bossWarn();
+                const types = ['satellite', 'splitmom', 'jammer', 'phantomlord', 'overload'];
+                activeBoss = createBoss(types[cycleIdx % types.length]);
+                const hpScale = 1 + (cycleIdx + 1) * 0.3;
+                activeBoss.hp = Math.round(activeBoss.hp * hpScale);
+                activeBoss.maxHp = activeBoss.hp;
+                pickupTexts.push({ x: W / 2, y: H / 2 - 60, text: '⚠ BOSS: 强化回归!', color: '#ffcc00', life: 3 });
+                bossWarningTimer = 5;
+            }
         }
     }
     if (bossWarningTimer > 0) bossWarningTimer -= dt;
-
-    // Wall phase 3: reflective & fragile walls after 240s
-    if (wallPhase === 2 && t >= 240) {
-        wallPhase = 3;
-        generateWalls(3);
-        pickupTexts.push({ x: W / 2, y: H / 2 - 40, text: '⚠ 复杂地形：反射墙 + 脆弱墙', color: '#bbddff', life: 3 });
-    }
 
     // Supply crates: spawn faster as game progresses (8-14s early → 4-7s late)
     crateTimer -= dt;
@@ -3384,11 +3821,15 @@ function updateSpawning() {
         crateTimer = rand(minInterval, maxInterval);
     }
 
-    // Card crates: every 20-28 seconds, max 2 on screen
+    // Card crates: scales faster as game progresses, max 3 on screen
     cardCrateTimer -= dt;
-    if (cardCrateTimer <= 0 && cardCrates.length < 2) {
+    if (cardCrateTimer <= 0 && cardCrates.length < 3) {
         spawnCardCrate();
-        cardCrateTimer = rand(20, 28);
+        // Dynamic interval: 18-24s early → 10-14s by 180s
+        const cardTimeFactor = clamp(t / 180, 0, 1);
+        const cardMinI = lerp(18, 10, cardTimeFactor);
+        const cardMaxI = lerp(24, 14, cardTimeFactor);
+        cardCrateTimer = rand(cardMinI, cardMaxI);
     }
 }
 
@@ -3402,7 +3843,6 @@ function handleCollisions() {
     // Echo extend: mark time multiplier (cap ~+175%)
     const echoLv = player.cardLv('echo');
     const echoMul = 1 + 2 * echoLv / (echoLv + 2.5);
-
     // Player bullets vs enemies (with distance pre-check)
     for (let b of bullets) {
         if (!b.alive || b.owner !== 'player') continue;
@@ -3414,6 +3854,8 @@ function handleCollisions() {
                 const wasAlive = e.hp > 0;
                 e.takeDamage(b.damage);
                 spawnParticles(b.x, b.y, 2, '#fff', 2);
+                // Reflect kill tracking
+                if (wasAlive && e.hp <= 0 && b.reflected) sessionStats.reflectKills++;
                 // Energy harvest: gain energy on kill
                 if (wasAlive && e.hp <= 0 && harvestLv > 0) {
                     player.energy = Math.min(player.getMaxEnergy(), player.energy + harvestAmt);
@@ -3462,7 +3904,7 @@ function handleCollisions() {
             if (w instanceof FragileWall) {
                 if (!w.alive) continue;
                 if (b.x > w.x && b.x < w.x + w.w && b.y > w.y && b.y < w.y + w.h) {
-                    if (b.owner === 'player') { w.takeDamage(); }
+                    w.takeDamage(); // both player AND enemy bullets can break fragile walls
                     b.alive = false; break;
                 }
             } else if (w instanceof ReflectWall) {
@@ -3475,8 +3917,9 @@ function handleCollisions() {
                     } else {
                         b.vy = -b.vy; b.y += b.vy * 2;
                     }
-                    // Change ownership on reflect — enemy bullets can become player-friendly
-                    if (b.owner === 'enemy') { b.owner = 'player'; b.color = '#00ddff'; b.damage = 1; }
+                    // Change ownership on reflect — enemy↔player swap
+                    if (b.owner === 'enemy') { b.owner = 'player'; b.color = '#00ddff'; b.damage = 1; b.reflected = true; }
+                    else if (b.owner === 'player') { b.owner = 'enemy'; b.color = '#ff8844'; b.playerDmg = 8; }
                     spawnParticles(b.x, b.y, 4, '#bbddff', 2);
                 }
             }
@@ -3637,12 +4080,21 @@ function loop(now) {
         // Track no-damage time
         sessionStats.noDmgTimer += dt;
         sessionStats.maxNoDmgTime = Math.max(sessionStats.maxNoDmgTime, sessionStats.noDmgTimer);
+        // Track no-sonar time
+        sessionStats.noSonarTimer += dt;
+        sessionStats.maxNoSonarTime = Math.max(sessionStats.maxNoSonarTime, sessionStats.noSonarTimer);
+        // Track evolution tier reached
+        const curTierStat = gameTime < 186 ? 0 : (gameTime < 335 ? 1 : (gameTime < 463 ? 2 : 3));
+        sessionStats.tierReached = Math.max(sessionStats.tierReached, curTierStat);
         // Periodic achievement check (every 3s)
         achieveCheckTimer = (achieveCheckTimer || 0) + dt;
         if (achieveCheckTimer >= 3) { achieveCheckTimer = 0; checkAchievements(); }
 
         player.update();
         updateSpawning();
+        // Sonar Slow: compute speed multiplier for marked enemies
+        const ssLv = player.cardLv('sonarslow');
+        sonarSlowFactor = ssLv > 0 ? 1 - [0, 0.25, 0.40, 0.50, 0.58, 0.65][ssLv] : 1;
         pulses.forEach(p => p.update());
         bullets.forEach(b => b.update());
         enemies.forEach(e => e.update());
@@ -3867,6 +4319,8 @@ const BOSS_GUIDE = [
     { type: 'satellite', name: '核心卫星', desc: '旋转八边形，十字弹幕', color: '#ff4466' },
     { type: 'splitmom', name: '分裂母体', desc: '追踪玩家，受伤分裂出猎手', color: '#ff3355' },
     { type: 'jammer', name: '信号干扰器', desc: '削弱声纳范围，三向弹幕', color: '#ddeeff' },
+    { type: 'phantomlord', name: '幽灵领主', desc: '穿墙瞬移，召唤幻影', color: '#bb77ff' },
+    { type: 'overload', name: '过载核心', desc: '螺旋弹幕，二阶段狂暴', color: '#ff2200' },
 ];
 function renderPauseGuide() {
     const eg = document.getElementById('pauseEnemyGuide');
@@ -3935,10 +4389,14 @@ function startGame() {
     cardCrates = []; walls = []; specialWalls = [];
     score = 0; gameTime = 0; frameCount = 0;
     spawnTimers = {}; crateTimer = 5;
-    cardCrateTimer = 18;
+    cardCrateTimer = 12;
     cardSelectActive = false;
+    sonarSlowFactor = 1;
     wallPhase = 0;
     activeBoss = null; bossWarningTimer = 0;
+    for (const entry of BOSS_SCHEDULE) entry.spawned = false;
+    shownEvolveTier = 0;
+    breathEvents = [false, false, false];
     shakeTimer = 0; damageFlash = 0; pickupFlashTimer = 0;
     playerNoiseRadius = 0;
     mouse.x = W / 2; mouse.y = H / 2;
@@ -4005,6 +4463,40 @@ function gameOver() {
     }
     $hud.classList.add('hidden');
     $menuOver.classList.remove('hidden');
+}
+
+function returnToMenu() {
+    // From game over screen → go to start menu
+    if (!playing && $menuOver.style.display !== 'none' && !$menuOver.classList.contains('hidden')) {
+        $menuOver.classList.add('hidden');
+        $menuStart.classList.remove('hidden');
+        return;
+    }
+    // From playing (paused or not) → stop game, go to start menu
+    if (playing) {
+        playing = false;
+        cardSelectActive = false;
+        gamePaused = false;
+        activeBoss = null;
+        document.getElementById('pauseOverlay').style.display = 'none';
+        document.getElementById('pauseOverlay').classList.add('hidden');
+        document.getElementById('cardOverlay').classList.add('hidden');
+        // Save score if it's a new best
+        if (score > best) {
+            best = score;
+            localStorage.setItem('neonEchoBest_' + currentPlayerName, best);
+            $bestVal.textContent = best;
+        }
+        if (gameTime > 5) addToLeaderboard(currentPlayerName, score, gameTime);
+        stopBGM();
+        if (bgmStopTimeout) { clearTimeout(bgmStopTimeout); bgmStopTimeout = null; }
+        $hud.classList.add('hidden');
+        $menuOver.classList.add('hidden');
+        $menuStart.classList.remove('hidden');
+    }
+    // Close achievement/leaderboard panels if open
+    document.getElementById('achievePanel').classList.add('hidden');
+    document.getElementById('leaderPanel').classList.add('hidden');
 }
 
 $bestVal.textContent = best || '—';
