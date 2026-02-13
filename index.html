@@ -334,7 +334,8 @@
 </div>
 
 <div id="pauseOverlay" class="menu-bg hidden" style="z-index:95;overflow-y:auto;padding:30px 20px;display:none;flex-direction:column;align-items:center;">
-    <div style="font-family:'Orbitron',sans-serif;font-size:20px;color:#00f2ff;letter-spacing:4px;margin-bottom:16px;">PAUSED</div>
+    <div style="font-family:'Orbitron',sans-serif;font-size:20px;color:#00f2ff;letter-spacing:4px;margin-bottom:8px;">信号连接暂停</div>
+    <div style="font-size:9px;color:#555;letter-spacing:1px;margin-bottom:14px;text-align:center;max-width:360px;">2087 · 信号风暴笼罩赛博都市 · 你以声纳在迷雾中求生</div>
     <div style="font-size:10px;color:#666;letter-spacing:2px;margin-bottom:10px;">— 操作 —</div>
     <div style="font-size:12px;color:#aaa;text-align:center;line-height:2;">
         <span style="color:#00f2ff;">WASD</span> 移动 &nbsp; <span style="color:#00f2ff;">鼠标</span> 瞄准 &nbsp; <span style="color:#00f2ff;">左键</span> 射击 &nbsp; <span style="color:#00f2ff;">右键</span> 声纳 &nbsp; <span style="color:#00f2ff;">空格</span> 暂停
@@ -367,7 +368,7 @@
             <div style="color:#997700;font-size:7px;">抽卡提升技能</div>
         </div>
     </div>
-    <button class="btn" style="margin-top:18px;font-size:0.7rem;padding:8px 24px;" onclick="togglePause()">继续游戏</button>
+    <button class="btn" style="margin-top:18px;font-size:0.7rem;padding:8px 24px;" onclick="togglePause()">恢复连接</button>
 </div>
 
 <div id="cardOverlay" class="card-overlay hidden">
@@ -675,6 +676,7 @@ const SFX = {
 // ═══════════════════════════════════════════════════════════
 let bgm = null;
 let bgmStopTimeout = null;
+let bgmFadeId = 0; // 用于取消进行中的淡出，避免重新挑战时被淡出逻辑把音量拉回 0
 function initBGM() {
     if (bgm) return;
     bgm = new Audio('Perpetual Neon-Hunt.mp3');
@@ -683,6 +685,7 @@ function initBGM() {
 }
 function playBGM() {
     initBGM();
+    bgmFadeId++; // 使正在进行的 fadeBGM 的 step 不再改写音量
     bgm.volume = 0.3;
     if (bgm.paused) bgm.play().catch(() => {});
 }
@@ -694,9 +697,11 @@ function stopBGM() {
 }
 function fadeBGM(targetVol, duration) {
     if (!bgm) return;
+    const fadeId = ++bgmFadeId;
     const startVol = bgm.volume;
     const startTime = performance.now();
     function step() {
+        if (fadeId !== bgmFadeId) return; // 已被 playBGM 取消
         const elapsed = (performance.now() - startTime) / (duration * 1000);
         if (elapsed >= 1) { bgm.volume = targetVol; return; }
         bgm.volume = startVol + (targetVol - startVol) * elapsed;
@@ -1077,6 +1082,7 @@ let cardSelectActive = false;
 let cardCrateTimer = 0;
 let sonarSlowFactor = 1; // updated each frame: speed multiplier for sonar-marked enemies
 let cardCrates = [];
+let drainerPulses = []; // { x, y, r, maxR, speed, damage, hit } — expanding wave on drainer kill
 let achieveCheckTimer = 0;
 
 // ── Card Definitions (12 cards, max Lv.5, diminishing returns) ──
@@ -1089,9 +1095,9 @@ const CARD_DEFS = [
     { id: 'scatter',      name: '散射模块', desc: '射击变为扇形弹幕', rarity: 'rare',
       upgrades: ['3发弹幕', '5发弹幕', '7发弹幕', '7发+10%伤害', '7发+20%伤害'] },
     { id: 'pierce',       name: '穿透弹头', desc: '子弹穿透敌人继续飞行', rarity: 'common',
-      upgrades: ['穿透1个', '穿透2个', '穿透2个+10%伤害', '穿透3个+10%伤害', '穿透3个+20%伤害'] },
+      upgrades: ['穿透1个', '穿透2个', '穿透3个+10%伤害', '穿透3个+20%伤害', '穿透3个+30%伤害'] },
     { id: 'rapidfire',    name: '高速弹匣', desc: '提高射击频率', rarity: 'rare',
-      upgrades: ['+32%射速', '+53%射速', '+68%射速', '+78%射速', '+86%射速'] },
+      upgrades: ['+41%射速', '+79%射速', '+112%射速', '+143%射速', '+169%射速'] },
     // ── SONAR (4) ──
     { id: 'echo',         name: '回声延长', desc: '声纳标记持续更久', rarity: 'common',
       upgrades: ['+57%标记', '+89%标记', '+109%标记', '+123%标记', '+133%标记'] },
@@ -1130,7 +1136,7 @@ class Player {
     constructor() {
         this.x = W / 2; this.y = H / 2;
         this.radius = 8;
-        this.speed = 4;
+        this.speed = 3.2;   // 略快于猎手(3)，走位更有代价；速度芯片可拉回明显优势
         this.hp = 70; this.maxHp = 70;
         this.invTimer = 0;
         this.energy = 100; this.maxEnergy = 100;
@@ -1273,7 +1279,7 @@ class Player {
             sessionStats.noSonarTimer = 0; // reset no-sonar timer
         }
     }
-    takeDamage(amount) {
+    takeDamage(amount, sourceEnemy) {
         if (this.invTimer > 0) return;
         const dmg = amount || 10;
 
@@ -1342,9 +1348,11 @@ class Player {
 
         this.hp -= finalDmg;
         this.invTimer = 0.8;
-        shakeTimer = 0.12;
-        damageFlash = 0.2;
-        spawnParticles(this.x, this.y, 12, '#ff2266', 3);
+        // 猎手撞击：更强震动与闪红，与游荡者“蹭到”区分开
+        const isHunterHit = sourceEnemy && sourceEnemy.type === 'hunter';
+        shakeTimer = isHunterHit ? 0.18 : 0.12;
+        damageFlash = isHunterHit ? 0.28 : 0.2;
+        spawnParticles(this.x, this.y, 12, isHunterHit ? '#ff4400' : '#ff2266', isHunterHit ? 4 : 3);
         SFX.playerHit();
         sessionStats.noDmgTimer = 0; // reset no-damage timer
         if (this.hp <= 0) { this.hp = 0; gameOver(); }
@@ -1369,6 +1377,16 @@ class Player {
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = '#00f2ff';
         ctx.fill();
+        // 高亮描边 + 外环：后期敌多时也能快速找到自己
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        const ringAlpha = 0.45 + Math.sin(performance.now() * 0.004) * 0.12;
+        ctx.strokeStyle = 'rgba(255,255,255,' + ringAlpha + ')';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius + 5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineWidth = 1;
         // Soft glow layer (no shadowBlur)
         ctx.globalAlpha = 0.25;
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius + 6, 0, Math.PI * 2);
@@ -1619,7 +1637,7 @@ class SupplyCrate {
         this.hintTimer += dt;
 
         // Pickup: player touches a VISIBLE crate
-        if (this.markedTimer > 0 && dist(this.x, this.y, player.x, player.y) < this.size + player.radius + 8) {
+        if (this.markedTimer > 0 && dist(this.x, this.y, player.x, player.y) < this.size + player.radius + 14) {
             this.alive = false;
             SFX.pickup();
             // BIG particle burst on pickup
@@ -1766,6 +1784,19 @@ function pointInWall(px, py) {
     return false;
 }
 
+// Distance from point to nearest wall and closest point on that wall (for Phantom retreat)
+function distToNearestWall(px, py) {
+    let best = { dist: 1e9, x: px, y: py };
+    for (const w of walls) {
+        if (w instanceof FragileWall && !w.alive) continue;
+        const cx = clamp(px, w.x, w.x + w.w);
+        const cy = clamp(py, w.y, w.y + w.h);
+        const d = Math.hypot(px - cx, py - cy);
+        if (d < best.dist) { best.dist = d; best.x = cx; best.y = cy; }
+    }
+    return best;
+}
+
 // Line segment intersects AABB? (for sonar occlusion)
 function lineHitsWall(x1, y1, x2, y2) {
     for (const w of walls) {
@@ -1863,7 +1894,7 @@ class CardCrate {
         if (this.lifespan <= 0) { this.alive = false; return; }
         // Pickup: player touches a VISIBLE card crate (guard against multi-trigger)
         if (!this.alive) return;
-        if (this.markedTimer > 0 && !cardSelectActive && dist(this.x, this.y, player.x, player.y) < this.size + player.radius + 10) {
+        if (this.markedTimer > 0 && !cardSelectActive && dist(this.x, this.y, player.x, player.y) < this.size + player.radius + 14) {
             this.alive = false;
             // Also kill any other nearby card crates to prevent multi-trigger
             for (const cc of cardCrates) {
@@ -2036,13 +2067,13 @@ document.getElementById('btnSkipCard').onclick = hideCardSelection;
 // ═══════════════════════════════════════════════════════════
 const ENEMY_CFG = {
     drifter:  { hp: 1, speed: 2,   perception: 80,  size: 12, color: '#ff3355', score: 10, contactDmg: 10 },
-    hunter:   { hp: 1, speed: 3,   perception: 180, size: 14, color: '#ff8800', score: 20, contactDmg: 15 },
+    hunter:   { hp: 2, speed: 3,   perception: 180, size: 14, color: '#ff8800', score: 20, contactDmg: 15 },
     turret:   { hp: 7, speed: 0,   perception: 220, size: 18, color: '#aa44ff', score: 90, bulletDmg: 18 },
     sniper:   { hp: 3, speed: 0.5, perception: 9999,size: 13, color: '#ff2255', score: 70, bulletDmg: 22 },
     hive:     { hp: 15, speed: 0,   perception: 0,   size: 24, color: '#33ff66', score: 100, contactDmg: 0 },
     swarmling:{ hp: 1, speed: 3,   perception: 180, size: 6,  color: '#66ff88', score: 5,  contactDmg: 5 },
     phantom:  { hp: 4, speed: 2,   perception: 200, size: 14, color: '#bb77ff', score: 50, contactDmg: 14 },
-    drainer:  { hp: 2, speed: 2,   perception: 150, size: 11, color: '#33aaff', score: 35, contactDmg: 0 },
+    drainer:  { hp: 5, speed: 2,   perception: 150, size: 11, color: '#33aaff', score: 35, contactDmg: 0 },
 };
 
 class Enemy {
@@ -2068,11 +2099,14 @@ class Enemy {
         this.tier = 0;          // evolution tier (0=normal, 1=enhanced, 2=elite, 3=berserk)
         this.tierDmgMul = 1;    // damage multiplier for ranged attacks
         this.hitFlash = 0;      // white flash timer on hit
+        this.chargeTimer = 0;   // 猎手蓄力：>0 蓄力中，<=0 可冲或已冲完
+        this.contactCooldown = 0; // 撞击后短暂休息，避免每帧扣血
     }
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
         if (this.markedTimer <= 0) this.markIntensity = 0;
         if (this.hitFlash > 0) this.hitFlash -= dt;
+        if (this.contactCooldown > 0) this.contactCooldown -= dt;
 
         const dToPlayer = dist(this.x, this.y, player.x, player.y);
         const hearsPlayer = this.canHearPlayer();
@@ -2088,9 +2122,10 @@ class Enemy {
             this.lastKnownY = player.y;
             this.stateTimer = 0;
             this.doAlertMove(1.0);
-            // Contact damage always (no vision needed)
-            if (dToPlayer < this.size + player.radius + 3) {
-                player.takeDamage(this.contactDmg);
+            // Contact damage always (no vision needed)，撞击后短暂休息
+            if (dToPlayer < this.size + player.radius + 3 && this.contactCooldown <= 0) {
+                player.takeDamage(this.contactDmg, this);
+                this.contactCooldown = 0.35;
             }
             // Wall collision
             for (const w of walls) {
@@ -2122,18 +2157,34 @@ class Enemy {
                     this.lastKnownX = player.x;
                     this.lastKnownY = player.y;
                     this.stateTimer = 0;
-                    this.doAlertMove(1.0);
+                    // 猎手：130px 内蓄力 0.2s（边蓄边靠 0.45x），再 1.55x 冲；≥130px 正常追，拉远才重置蓄力
+                    if (this.type === 'hunter') {
+                        if (dToPlayer >= 130) {
+                            this.chargeTimer = 0;
+                            this.doAlertMove(1.0);
+                        } else {
+                            if (this.chargeTimer === 0) this.chargeTimer = 0.2;
+                            this.chargeTimer -= dt;
+                            if (this.chargeTimer > 0) this.doAlertMove(0.45);  // 蓄力时仍缓慢靠近
+                            else this.doAlertMove(1.55);  // 冲刺更快，有近身机会
+                        }
+                    } else {
+                        this.doAlertMove(1.0);
+                    }
                 } else if (isMarked) {
-                    // Sonar-lit: rush toward last known
-                    this.doAlertMove(0.8);
+                    // Sonar-lit: rush toward last known（猎手更果断，不减速）
+                    const markMul = this.type === 'hunter' ? 1.0 : 0.8;
+                    this.doAlertMove(markMul);
                     this.stateTimer += dt * 0.5;
                 } else if (hearsPlayer) {
-                    // Can hear but NOT see: slow groping
+                    // Can hear but NOT see（猎手仍较果断冲向声源，游荡者缓慢摸索）
                     this.lastKnownX = playerNoiseX;
                     this.lastKnownY = playerNoiseY;
-                    this.doAlertMove(0.3);
+                    const hearMul = this.type === 'hunter' ? 0.55 : 0.3;
+                    this.doAlertMove(hearMul);
                     this.stateTimer += dt;
                 } else {
+                    if (this.type === 'hunter') this.chargeTimer = 0;
                     // BLIND: confused wandering
                     this.patrolAngle += rand(-0.08, 0.08);
                     const bs = this.eSpeed();
@@ -2144,10 +2195,12 @@ class Enemy {
                 if (this.stateTimer > 2) {
                     this.state = 'search'; this.stateTimer = 0;
                 }
-                // Contact damage ONLY when enemy has vision (can see you)
-                if (hasVision && dToPlayer < this.size + player.radius + 3) {
-                    player.takeDamage(this.contactDmg);
+                // Contact damage ONLY when enemy has vision (can see you)，撞击后短暂休息再可造成伤害
+                if (hasVision && dToPlayer < this.size + player.radius + 3 && this.contactCooldown <= 0) {
+                    player.takeDamage(this.contactDmg, this);
                     this.stateTimer = 0;
+                    this.contactCooldown = this.type === 'hunter' ? 0.5 : 0.35; // 猎手撞完休息略长再蓄力
+                    if (this.type === 'hunter') this.chargeTimer = 0; // 下次需重新蓄力
                 }
                 break;
             case 'search':
@@ -2241,7 +2294,7 @@ class Enemy {
                 pickupTexts.push({ x: this.x, y: this.y - 12, text: label, color: color, life: 0.8 });
             }
             // ALL enemies drop energy (100%)
-            const dropAmt = { drifter: 10, hunter: 18, turret: 22, sniper: 30, hive: 35, swarmling: 3, phantom: 22, drainer: 15 };
+            const dropAmt = { drifter: 10, hunter: 18, turret: 22, sniper: 30, hive: 35, swarmling: 3, phantom: 28, drainer: 22 };
             energyOrbs.push({ x: this.x, y: this.y, life: 10, amount: dropAmt[this.type] || 10 });
             SFX.hit();
             sessionStats.kills++;
@@ -2317,6 +2370,19 @@ class Enemy {
                 ctx.fillRect(-s / 2, -s / 2, s, s);
                 break;
             case 'hunter':
+                // 蓄力时闪一下（亮橙/白脉冲）
+                if (this.chargeTimer > 0 && vis > 0.05) {
+                    const chargeT = 1 - this.chargeTimer / 0.2;
+                    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.02);
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.globalAlpha = vis * (0.4 + 0.4 * chargeT * pulse);
+                    ctx.fillStyle = '#ffcc66';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, s + 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.globalAlpha = vis;
+                }
                 ctx.beginPath();
                 ctx.moveTo(0, -s); ctx.lineTo(s * 0.7, 0);
                 ctx.lineTo(0, s); ctx.lineTo(-s * 0.7, 0);
@@ -2839,63 +2905,125 @@ class Hive extends Enemy {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  PHANTOM — phases through walls, erratic movement
+//  PHANTOM — wall-hug (invincible), telegraph, out chase 2–3s, retreat
 // ═══════════════════════════════════════════════════════════
+const PHANTOM_TELEGRAPH_DUR = 0.9;   // pre-attack telegraph (s)
+const PHANTOM_FOLLOW_DUR = 2.5;      // follow player then retreat (s)
+const PHANTOM_WALL_NEAR = 28;        // dist to wall to count as "on wall"
+
 class Phantom extends Enemy {
     constructor(x, y) {
         super('phantom', x, y);
         this.phaseTimer = 0;
         this.driftAngle = rand(0, Math.PI * 2);
+        this.phantomState = 'outChase'; // 'wallHug' | 'telegraph' | 'outChase' | 'retreat'
+        this.telegraphTimer = 0;
+        this.followTimer = PHANTOM_FOLLOW_DUR;
+        const near = distToNearestWall(x, y);
+        if (walls.length > 0 && near.dist < PHANTOM_WALL_NEAR) this.phantomState = 'wallHug';
     }
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
         if (this.markedTimer <= 0) this.markIntensity = 0;
         if (this.hitFlash > 0) this.hitFlash -= dt;
+        if (this.contactCooldown > 0) this.contactCooldown -= dt;
         const dToPlayer = dist(this.x, this.y, player.x, player.y);
-        // Phantom senses THROUGH walls — ignores lineHitsWall
-        const sensesPlayer = dToPlayer < this.perceptionRange;
-        const isMarked = this.markedTimer > 0;
-        this.phaseTimer += dt;
-        if (sensesPlayer || isMarked) {
-            // Erratic pursuit — drifts toward player with random oscillation
+        const hasSight = !lineHitsWall(this.x, this.y, player.x, player.y);
+        const nearWall = distToNearestWall(this.x, this.y);
+
+        if (this.phantomState === 'wallHug') {
+            // Move along wall: tangent motion, stay near wall
+            this.driftAngle += rand(-0.03, 0.03);
+            const spd = this.eSpeed() * dt * 60;
+            let nx = this.x + Math.cos(this.driftAngle) * spd;
+            let ny = this.y + Math.sin(this.driftAngle) * spd;
+            if (pointInWall(nx, ny)) {
+                this.driftAngle += Math.PI * 0.5 + rand(-0.2, 0.2);
+                nx = this.x + Math.cos(this.driftAngle) * spd;
+                ny = this.y + Math.sin(this.driftAngle) * spd;
+            }
+            if (!pointInWall(nx, ny)) { this.x = nx; this.y = ny; }
+            this.x = clamp(this.x, 20, W - 20);
+            this.y = clamp(this.y, 20, H - 20);
+            if (hasSight && dToPlayer < this.perceptionRange) {
+                this.phantomState = 'telegraph';
+                this.telegraphTimer = PHANTOM_TELEGRAPH_DUR;
+            }
+            return;
+        }
+
+        if (this.phantomState === 'telegraph') {
+            this.telegraphTimer -= dt;
+            if (this.telegraphTimer <= 0) {
+                this.phantomState = 'outChase';
+                this.followTimer = PHANTOM_FOLLOW_DUR;
+            }
+            return;
+        }
+
+        if (this.phantomState === 'outChase') {
+            this.followTimer -= dt;
             const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
-            this.driftAngle = lerp(this.driftAngle, toPlayer, 0.04);
-            this.driftAngle += Math.sin(this.phaseTimer * 3) * 0.08;
+            this.driftAngle = lerp(this.driftAngle, toPlayer, 0.06);
+            this.driftAngle += Math.sin(this.phaseTimer * 3) * 0.06;
+            this.phaseTimer += dt;
             const ps = this.eSpeed();
             this.x += Math.cos(this.driftAngle) * ps * dt * 60;
             this.y += Math.sin(this.driftAngle) * ps * dt * 60;
-            this.state = 'alert';
-            // Contact damage
-            if (dToPlayer < this.size + player.radius + 3) {
-                player.takeDamage(this.contactDmg);
+            if (dToPlayer < this.size + player.radius + 3 && this.contactCooldown <= 0) {
+                player.takeDamage(this.contactDmg, this);
+                this.contactCooldown = 0.35;
             }
-        } else {
-            // Random drift
-            this.driftAngle += rand(-0.05, 0.05);
-            const pd = this.eSpeed();
-            this.x += Math.cos(this.driftAngle) * pd * 0.3 * dt * 60;
-            this.y += Math.sin(this.driftAngle) * pd * 0.3 * dt * 60;
-            this.state = 'patrol';
+            this.x = clamp(this.x, -30, W + 30);
+            this.y = clamp(this.y, -30, H + 30);
+            if (this.followTimer <= 0 && walls.length > 0) {
+                this.phantomState = 'retreat';
+            }
+            return;
         }
-        // Phantom does NOT collide with walls — phases through
-        this.x = clamp(this.x, -50, W + 50);
-        this.y = clamp(this.y, -50, H + 50);
+
+        if (this.phantomState === 'retreat') {
+            const tx = nearWall.x, ty = nearWall.y;
+            const dx = tx - this.x, dy = ty - this.y;
+            const len = Math.hypot(dx, dy) || 1;
+            const spd = this.eSpeed() * dt * 60;
+            this.x += (dx / len) * spd;
+            this.y += (dy / len) * spd;
+            if (nearWall.dist < PHANTOM_WALL_NEAR) {
+                this.phantomState = 'wallHug';
+                this.driftAngle = Math.atan2(dy, dx) + rand(-0.5, 0.5);
+            }
+            this.x = clamp(this.x, 20, W - 20);
+            this.y = clamp(this.y, 20, H - 20);
+        }
     }
     draw() {
-        // Override visibility: Phantom is always ghostly transparent
-        const origDraw = Enemy.prototype.draw;
-        const self = this;
-        // Temporarily boost markedTimer for drawing so it's somewhat visible
         const savedMark = this.markedTimer;
         const savedIntensity = this.markIntensity;
-        // Phantom: ghostly flicker effect — always slightly visible
-        const flicker = 0.3 + Math.sin(performance.now() * 0.008 + this.x * 0.05) * 0.15;
-        if (this.markedTimer > 0) {
-            this.markIntensity = (this.markIntensity || 1) * flicker;
+        const flicker = 0.35 + Math.sin(performance.now() * 0.008 + this.x * 0.05) * 0.15;
+        if (this.markedTimer > 0) this.markIntensity = (this.markIntensity || 1) * flicker;
+
+        if (this.phantomState === 'telegraph') {
+            const t = 1 - this.telegraphTimer / PHANTOM_TELEGRAPH_DUR;
+            const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 12) * (1 - t);
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.globalAlpha = 0.4 + pulse * 0.3;
+            ctx.strokeStyle = 'rgba(200,150,255,0.8)';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, 0, this.size + 8 + t * 12, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+            ctx.restore();
         }
-        super.draw();
+        if (this.phantomState === 'wallHug') {
+            ctx.globalAlpha = 0.6;
+        }
+        Enemy.prototype.draw.call(this);
         this.markedTimer = savedMark;
         this.markIntensity = savedIntensity;
+        ctx.globalAlpha = 1;
     }
     doPatrol() {}
 }
@@ -2926,10 +3054,10 @@ class Drainer extends Enemy {
             this.state = 'patrol';
             this.doPatrol();
         }
-        // Drain energy when close
+        // Drain energy when close (12/s, 80px; no shield)
         this.drainActive = dToPlayer < 80;
         if (this.drainActive) {
-            player.energy = Math.max(0, player.energy - 8 * dt); // 8/s drain
+            player.energy = Math.max(0, player.energy - 12 * dt); // 12/s drain
             // Visual: pull energy particles toward drainer
             if (Math.random() < 0.3) {
                 const a = rand(0, Math.PI * 2);
@@ -2948,10 +3076,20 @@ class Drainer extends Enemy {
         if (this.x < -margin || this.x > W + margin || this.y < -margin || this.y > H + margin) this.alive = false;
     }
     draw() {
-        // Swirl effect when draining
+        // Drain range hint (80px) when draining
         if (this.drainActive) {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.strokeStyle = 'rgba(51,170,255,0.15)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 6]);
+            ctx.beginPath();
+            ctx.arc(0, 0, 80, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
             const t = performance.now() * 0.003;
-            ctx.strokeStyle = 'rgba(51,170,255,0.3)';
+            ctx.strokeStyle = 'rgba(51,170,255,0.35)';
             ctx.lineWidth = 1;
             for (let i = 0; i < 3; i++) {
                 const a = t + (Math.PI * 2 / 3) * i;
@@ -3719,23 +3857,25 @@ function updateSpawning() {
     // ── Spawn helpers: respect caps ──
     const canSpawn = (type, cap) => totalEnemies < globalCap && (eCounts[type] || 0) < cap;
 
-    // ── PHASE 1 (0-39s): Drifters only — learn basics ──
+    // ── PHASE 1 (0-39s): Drifters only ──
+    const drifterCap = 12;
     spawnTimers.drifter = (spawnTimers.drifter || 0) - dt;
-    if (spawnTimers.drifter <= 0 && canSpawn('drifter', 12)) {
-        const drifterBatch = t < 60 ? 1 : (t < 210 ? 2 : 2);
-        for (let i = 0; i < drifterBatch; i++) { if (canSpawn('drifter', 12)) spawnEnemy('drifter'); }
-        spawnTimers.drifter = Math.max(1.5, 3.2 / diffMul);
+    if (spawnTimers.drifter <= 0 && canSpawn('drifter', drifterCap)) {
+        for (let i = 0; i < 2; i++) { if (canSpawn('drifter', drifterCap)) spawnEnemy('drifter'); }
+        spawnTimers.drifter = Math.max(1.5, 3 / diffMul);
     } else if (spawnTimers.drifter <= 0) {
-        spawnTimers.drifter = 1.8;
+        spawnTimers.drifter = 2;
     }
 
-    // ── PHASE 2 (39s+): Hunters join — L1:41s accent -2 ──
+    // ── PHASE 2 (39s+): Hunters join — more early volume ──
     if (t > 39) {
+        const hunterCap = 10; // 猎手中期上限略提（原 8）
         spawnTimers.hunter = (spawnTimers.hunter || 0) - dt;
-        if (spawnTimers.hunter <= 0 && canSpawn('hunter', 6)) {
-            spawnEnemy('hunter');
-            spawnTimers.hunter = Math.max(3.5, 8 / diffMul);
-        } else if (spawnTimers.hunter <= 0) spawnTimers.hunter = 3.5;
+        if (spawnTimers.hunter <= 0 && canSpawn('hunter', hunterCap)) {
+            const hunterBatch = t < 120 ? 2 : 1; // 2 early, 1 later
+            for (let i = 0; i < hunterBatch; i++) { if (canSpawn('hunter', hunterCap)) spawnEnemy('hunter'); }
+            spawnTimers.hunter = Math.max(2.5, 6 / diffMul); // faster spawn
+        } else if (spawnTimers.hunter <= 0) spawnTimers.hunter = 2.8;
     }
 
     // ── PHASE 3 (81s+): Turrets join — L1:83s 段落 -2 (静态敌人配安静段落) ──
@@ -3856,6 +3996,7 @@ function handleCollisions() {
             // Quick reject: skip if clearly too far (Manhattan distance)
             if (Math.abs(b.x - e.x) > 40 || Math.abs(b.y - e.y) > 40) continue;
             if (dist(b.x, b.y, e.x, e.y) < e.size + b.radius) {
+                if (e.type === 'phantom' && e.phantomState === 'wallHug') continue; // invincible on wall
                 const wasAlive = e.hp > 0;
                 e.takeDamage(b.damage);
                 spawnParticles(b.x, b.y, 2, '#fff', 2);
@@ -3865,6 +4006,10 @@ function handleCollisions() {
                 if (wasAlive && e.hp <= 0 && harvestLv > 0) {
                     player.energy = Math.min(player.getMaxEnergy(), player.energy + harvestAmt);
                     spawnParticles(e.x, e.y, 6, '#00ffaa', 2);
+                }
+                // Drainer death: expanding damage wave (no silence/slow)
+                if (wasAlive && e.hp <= 0 && e.type === 'drainer') {
+                    drainerPulses.push({ x: e.x, y: e.y, r: 0, maxR: 220, speed: 50, damage: 15, hit: false });
                 }
                 // Pierce: bullet continues through enemies
                 if (b.pierceLeft > 0) {
@@ -3950,7 +4095,8 @@ function handleCollisions() {
         for (let e of enemies) {
             if (!e.alive) continue;
             if (p.hitsPoint(e.x, e.y)) {
-                // Phantom ignores walls for sonar but still needs to be hit by pulse ring
+                // Phantom on wall: invincible, do not mark
+                if (e.type === 'phantom' && e.phantomState === 'wallHug') continue;
                 if (e.type !== 'phantom' && lineHitsWall(p.x, p.y, e.x, e.y)) continue;
                 const d = dist(p.x, p.y, e.x, e.y);
                 const ratio = 1 - clamp(d / p.maxRadius, 0, 1);
@@ -4012,13 +4158,15 @@ function handleCollisions() {
         orb.life -= dt;
         if (orb.life <= 0) continue;
         const d = dist(orb.x, orb.y, player.x, player.y);
-        if (d < 60 && d > 0) {
+        const pickupRadius = 26; // base; could be card "能量吸附" +radius
+        const pullRadius = 70;
+        if (d < pullRadius && d > 0) {
             const pull = 3 * dt * 60;
             const ang = Math.atan2(player.y - orb.y, player.x - orb.x);
             orb.x += Math.cos(ang) * pull;
             orb.y += Math.sin(ang) * pull;
         }
-        if (d < 20) {
+        if (d < pickupRadius) {
             player.energy = Math.min(player.getMaxEnergy(), player.energy + orb.amount);
             spawnParticles(orb.x, orb.y, 8, '#00aaff', 2);
             orb.life = 0;
@@ -4108,6 +4256,18 @@ function loop(now) {
         particles.forEach(p => p.update());
         handleCollisions();
 
+        // Drainer death pulses: expand and damage player once when wave reaches them (no silence/slow)
+        for (let i = drainerPulses.length - 1; i >= 0; i--) {
+            const p = drainerPulses[i];
+            p.r += p.speed * dt;
+            const d = dist(player.x, player.y, p.x, p.y);
+            if (p.r >= d && !p.hit) {
+                player.takeDamage(p.damage);
+                p.hit = true;
+            }
+            if (p.r >= p.maxR) drainerPulses.splice(i, 1);
+        }
+
         // Boss update
         if (activeBoss && activeBoss.alive) activeBoss.update();
         if (activeBoss && !activeBoss.alive) activeBoss = null;
@@ -4148,7 +4308,7 @@ function loop(now) {
     // Walls
     walls.forEach(w => w.draw());
 
-    // Energy orbs
+    // Energy orbs — 统一原大小
     const orbFlicker = 0.5 + Math.sin(now * 0.005) * 0.3;
     ctx.fillStyle = '#00aaff';
     for (const orb of energyOrbs) {
@@ -4160,6 +4320,19 @@ function loop(now) {
 
     supplyCrates.forEach(c => c.draw());
     cardCrates.forEach(c => c.draw());
+    // Drainer death pulses: expanding damage wave (energy impact)
+    for (const p of drainerPulses) {
+        const alpha = 0.5 * (1 - p.r / p.maxR);
+        ctx.strokeStyle = 'rgba(51,170,255,' + alpha + ')';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(51,170,255,' + alpha * 0.08 + ')';
+        ctx.fill();
+    }
+    ctx.lineWidth = 1;
+    ctx.fillStyle = '#000';
     enemies.forEach(e => e.draw());
     if (activeBoss && activeBoss.alive) activeBoss.draw();
     bullets.forEach(b => b.draw());
@@ -4240,14 +4413,14 @@ addEventListener('mousedown', e => {
 // ═══════════════════════════════════════════════════════════
 let gamePaused = false;
 const ENEMY_GUIDE = [
-    { type: 'drifter', name: '漂流者', desc: '随机游荡，接触伤害', color: '#ff3355' },
-    { type: 'hunter', name: '猎手', desc: '听声追踪，高速冲撞', color: '#ff8800' },
-    { type: 'turret', name: '炮台', desc: '范围检测，连续射击(2次声纳可瘫痪)', color: '#aa44ff' },
-    { type: 'sniper', name: '狙击手', desc: '全图听声，蓄力狙击(红线预警，声纳可打断)', color: '#ff2255' },
-    { type: 'hive', name: '蜂巢', desc: '不移动，持续释放小怪群', color: '#33ff66' },
-    { type: 'swarmling', name: '蜂群虫', desc: '蜂巢产物，自动锁定玩家', color: '#66ff88' },
-    { type: 'phantom', name: '幻影', desc: '穿墙移动，半隐形', color: '#bb77ff' },
-    { type: 'drainer', name: '吸能者', desc: '吸取玩家能量', color: '#33aaff' },
+    { type: 'drifter', name: '游荡者', desc: '随机穿过，接触伤害，能量+10', color: '#ff3355' },
+    { type: 'hunter', name: '猎手', desc: '听声追踪，蓄力后冲撞，能量+18', color: '#ff8800' },
+    { type: 'turret', name: '炮台', desc: '范围检测，连续射击(2次声纳可瘫痪)，能量+22', color: '#aa44ff' },
+    { type: 'sniper', name: '狙击手', desc: '全图听声，蓄力狙击(红线预警，声纳可打断)，能量+30', color: '#ff2255' },
+    { type: 'hive', name: '蜂巢', desc: '不移动，持续释放小怪群，能量+35', color: '#33ff66' },
+    { type: 'swarmling', name: '蜂群虫', desc: '蜂巢产物，自动锁定玩家，能量+3', color: '#66ff88' },
+    { type: 'phantom', name: '幽灵', desc: '贴墙无敌，发现出墙+跟随2～3s后回墙，能量+28', color: '#bb77ff' },
+    { type: 'drainer', name: '吸能者', desc: '80px内吸能12/s，击杀有扩散伤害波，能量+22', color: '#33aaff' },
 ];
 // SVG shapes matching actual in-game enemy rendering
 function enemySVG(type, color) {
@@ -4323,7 +4496,7 @@ function bossSVG(type, color) {
 const BOSS_GUIDE = [
     { type: 'satellite', name: '核心卫星', desc: '旋转八边形，十字弹幕', color: '#ff4466' },
     { type: 'splitmom', name: '分裂母体', desc: '追踪玩家，受伤分裂出猎手', color: '#ff3355' },
-    { type: 'jammer', name: '信号干扰器', desc: '削弱声纳范围，三向弹幕', color: '#ddeeff' },
+    { type: 'jammer', name: '信号干扰者', desc: '削弱声纳范围，三向弹幕', color: '#ddeeff' },
     { type: 'phantomlord', name: '幽灵领主', desc: '穿墙瞬移，召唤幻影', color: '#bb77ff' },
     { type: 'overload', name: '过载核心', desc: '螺旋弹幕，二阶段狂暴', color: '#ff2200' },
 ];
@@ -4394,6 +4567,7 @@ function startGame() {
 
     player = new Player();
     pulses = []; bullets = []; enemies = []; particles = [];
+    drainerPulses = [];
     energyOrbs = []; supplyCrates = []; pickupTexts = [];
     cardCrates = []; walls = []; specialWalls = [];
     score = 0; gameTime = 0; frameCount = 0;
