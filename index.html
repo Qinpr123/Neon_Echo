@@ -2067,7 +2067,7 @@ document.getElementById('btnSkipCard').onclick = hideCardSelection;
 // ═══════════════════════════════════════════════════════════
 const ENEMY_CFG = {
     drifter:  { hp: 1, speed: 2,   perception: 80,  size: 12, color: '#ff3355', score: 10, contactDmg: 10 },
-    hunter:   { hp: 2, speed: 3,   perception: 180, size: 14, color: '#ff8800', score: 20, contactDmg: 15 },
+    hunter:   { hp: 2, speed: 3,   perception: 180, size: 14, color: '#ff8800', score: 20, contactDmg: 10 },
     turret:   { hp: 7, speed: 0,   perception: 220, size: 18, color: '#aa44ff', score: 90, bulletDmg: 18 },
     sniper:   { hp: 3, speed: 0.5, perception: 9999,size: 13, color: '#ff2255', score: 70, bulletDmg: 22 },
     hive:     { hp: 15, speed: 0,   perception: 0,   size: 24, color: '#33ff66', score: 100, contactDmg: 0 },
@@ -3858,7 +3858,7 @@ function updateSpawning() {
     const canSpawn = (type, cap) => totalEnemies < globalCap && (eCounts[type] || 0) < cap;
 
     // ── PHASE 1 (0-39s): Drifters only ──
-    const drifterCap = 12;
+    const drifterCap = 10;
     spawnTimers.drifter = (spawnTimers.drifter || 0) - dt;
     if (spawnTimers.drifter <= 0 && canSpawn('drifter', drifterCap)) {
         for (let i = 0; i < 2; i++) { if (canSpawn('drifter', drifterCap)) spawnEnemy('drifter'); }
@@ -3869,7 +3869,7 @@ function updateSpawning() {
 
     // ── PHASE 2 (39s+): Hunters join — more early volume ──
     if (t > 39) {
-        const hunterCap = 10; // 猎手中期上限略提（原 8）
+        const hunterCap = 6;
         spawnTimers.hunter = (spawnTimers.hunter || 0) - dt;
         if (spawnTimers.hunter <= 0 && canSpawn('hunter', hunterCap)) {
             const hunterBatch = t < 120 ? 2 : 1; // 2 early, 1 later
