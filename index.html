@@ -338,7 +338,7 @@
     <div style="font-size:9px;color:#555;letter-spacing:1px;margin-bottom:14px;text-align:center;max-width:360px;">2087 · 信号风暴笼罩赛博都市 · 你以声纳在迷雾中求生</div>
     <div style="font-size:10px;color:#666;letter-spacing:2px;margin-bottom:10px;">— 操作 —</div>
     <div style="font-size:12px;color:#aaa;text-align:center;line-height:2;">
-        <span style="color:#00f2ff;">WASD</span> 移动 &nbsp; <span style="color:#00f2ff;">鼠标</span> 瞄准 &nbsp; <span style="color:#00f2ff;">左键</span> 射击 &nbsp; <span style="color:#00f2ff;">右键</span> 声纳 &nbsp; <span style="color:#00f2ff;">空格</span> 暂停
+        <span style="color:#00f2ff;">WASD</span> 移动 &nbsp; <span style="color:#00f2ff;">鼠标</span> 瞄准 &nbsp; <span style="color:#00f2ff;">左键</span> 射击 &nbsp; <span style="color:#00f2ff;">右键</span> 声纳 &nbsp; <span style="color:#66ddff;">E</span> 相位位移(需卡) &nbsp; <span style="color:#00f2ff;">空格</span> 暂停
     </div>
     <div style="font-size:10px;color:#666;letter-spacing:2px;margin:14px 0 8px;">— 敌人图鉴 —</div>
     <div id="pauseEnemyGuide" style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;max-width:500px;"></div>
@@ -927,6 +927,10 @@ addEventListener('keydown', e => {
     if (e.code === 'Space' && playing) { togglePause(); }
     // Escape to return to main menu
     if (e.code === 'Escape') { returnToMenu(); }
+    // E to phase-step (requires phasestep card)
+    if (e.code === 'KeyE' && playing && !gamePaused && !cardSelectActive && player) {
+        player.phaseStep();
+    }
 });
 addEventListener('keyup', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
@@ -1124,6 +1128,17 @@ const CARD_DEFS = [
       upgrades: ['减速25%', '减速40%', '减速50%', '减速58%', '减速65%'] },
     { id: 'regen',        name: '再生装甲', desc: '持续缓慢回复生命值', rarity: 'rare',
       upgrades: ['0.6HP/s', '1.0HP/s', '1.2HP/s', '1.35HP/s', '1.47HP/s'] },
+    // ── COUNTER-AI (5) — 反制小队 / 标记 / 噪声 / 翼包 / 反射墙 ──
+    { id: 'silencer',     name: '消音步法', desc: '降低移动与射击产生的噪声', rarity: 'common',
+      upgrades: ['噪声-30%', '-45%', '-60%', '-72%', '-80%'] },
+    { id: 'counterpulse', name: '反制脉冲', desc: '声纳波令照亮的敌人短暂失去小队联动', rarity: 'rare',
+      upgrades: ['静默1.5s', '2.0s', '2.5s', '3.0s', '3.5s'] },
+    { id: 'ricochet',     name: '弹片反弹', desc: '子弹在反射墙上反弹一次', rarity: 'rare',
+      upgrades: ['反弹1次', '反弹1次+5%伤害', '反弹2次', '反弹2次+10%伤害', '反弹2次+20%伤害'] },
+    { id: 'markburst',    name: '标记爆破', desc: '击杀被声纳标记的敌人时引发AOE', rarity: 'epic',
+      upgrades: ['60px+1伤', '90px+1伤', '120px+2伤', '150px+2伤', '180px+3伤'] },
+    { id: 'phasestep',    name: '相位位移', desc: '消耗能量瞬移到鼠标方向（短按E）', rarity: 'epic',
+      upgrades: ['CD12s', 'CD10s', 'CD9s', 'CD8s', 'CD7s'] },
 ];
 // Pre-build id→card lookup for O(1) access
 const CARD_MAP = {};
@@ -1150,8 +1165,18 @@ class Player {
         this.scoreBonus = 0;
         this.scoreBonusTimer = 0;
         this.cards = new Map();         // card_id -> level (stacks infinitely)
+        this.spottedTimer = 0;          // active "marked" by turret flare (visual + tag broadcaster)
+        this.phaseStepCD = 0;           // phase-step (E key) cooldown
+        this.lastDashTime = 0;
     }
     cardLv(id) { return this.cards.get(id) || 0; }
+    // Noise multiplier: silencer card reduces all noise emissions
+    getNoiseMul() {
+        const lv = this.cardLv('silencer');
+        if (lv <= 0) return 1;
+        const reduction = [0, 0.30, 0.45, 0.60, 0.72, 0.80][lv];
+        return 1 - reduction;
+    }
     // Get effective max energy (affected by energycore card)
     getMaxEnergy() {
         const lv = this.cardLv('energycore');
@@ -1185,7 +1210,7 @@ class Player {
             dx /= len; dy /= len;
             this.x += dx * this.speed * speedMul;
             this.y += dy * this.speed * speedMul;
-            emitNoise(this.x, this.y, 80);
+            emitNoise(this.x, this.y, 80 * this.getNoiseMul());
         }
         for (const w of walls) {
             if (w instanceof FragileWall && !w.alive) continue;
@@ -1196,6 +1221,15 @@ class Player {
         this.y = clamp(this.y, this.radius, H - this.radius);
         this.energy = Math.min(effectiveMaxE, this.energy + (this.energyRegen * regenMul + extraRegen) * dt);
         if (this.invTimer > 0) this.invTimer -= dt;
+        if (this.spottedTimer > 0) {
+            this.spottedTimer -= dt;
+            // Continuously rebroadcast tag while spotted (only mid/late game)
+            if (squadAIActive() && Math.floor(this.spottedTimer * 4) !== Math.floor((this.spottedTimer + dt) * 4)) {
+                squadTagX = this.x; squadTagY = this.y;
+                squadTagTimer = Math.max(squadTagTimer, 1.5);
+            }
+        }
+        if (this.phaseStepCD > 0) this.phaseStepCD -= dt;
         // Regen Armor: passive HP recovery (cap ~1.47 HP/s at Lv.5)
         const regenLv = this.cardLv('regen');
         if (regenLv > 0) {
@@ -1248,8 +1282,46 @@ class Player {
         // Rapid fire: diminishing returns (cap ~86% faster at Lv.5)
         const rapidMul = 1 - 0.88 * rapidLv / (rapidLv + 2);  // Lv1=0.71, Lv3=0.47, Lv5=0.37
         this.shootCooldown = this.shootInterval * Math.max(0.12, rapidMul);
-        emitNoise(this.x, this.y, 200);
+        emitNoise(this.x, this.y, 200 * this.getNoiseMul());
         SFX.shoot();
+    }
+    // Phase Step — short-range teleport toward mouse cursor.
+    // Costs 35 energy. Requires `phasestep` card. Cooldown shrinks with level.
+    // Cannot teleport into walls; if blocked, stops at last clear position.
+    phaseStep() {
+        const lv = this.cardLv('phasestep');
+        if (lv <= 0) return;
+        if (this.phaseStepCD > 0) return;
+        if (this.energy < 35) return;
+        const cd = [12, 12, 10, 9, 8, 7][lv];
+        const maxDist = 200;
+        const aim = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+        // Step in increments to find safe landing
+        const steps = 10;
+        let bestX = this.x, bestY = this.y;
+        for (let i = 1; i <= steps; i++) {
+            const t = (i / steps) * maxDist;
+            const tx = this.x + Math.cos(aim) * t;
+            const ty = this.y + Math.sin(aim) * t;
+            if (tx < this.radius || tx > W - this.radius) break;
+            if (ty < this.radius || ty > H - this.radius) break;
+            if (pointInWall(tx, ty)) break;
+            bestX = tx; bestY = ty;
+        }
+        if (bestX === this.x && bestY === this.y) return; // blocked instantly
+        // Trail particles + grant brief invuln
+        for (let k = 0; k < 6; k++) {
+            const t = k / 6;
+            const px = this.x + (bestX - this.x) * t;
+            const py = this.y + (bestY - this.y) * t;
+            spawnParticles(px, py, 2, '#66ddff', 2);
+        }
+        this.x = bestX; this.y = bestY;
+        this.energy -= 35;
+        this.phaseStepCD = cd;
+        this.invTimer = Math.max(this.invTimer, 0.4);
+        SFX.sonar && SFX.sonar();
+        spawnParticles(this.x, this.y, 10, '#66ddff', 3);
     }
     pulse() {
         const sonarEffLv = this.cardLv('sonareff');
@@ -1273,6 +1345,22 @@ class Player {
                         pulses.push(p);
                     }
                 }, delay);
+            }
+            // Counter-pulse: emit a "tag mute" region — enemies inside lose
+            // squad coordination for the duration. Also clears any active
+            // squad tag and the player's "spotted" flare mark.
+            const cpLv = this.cardLv('counterpulse');
+            if (cpLv > 0) {
+                const muteDur = [0, 1.5, 2.0, 2.5, 3.0, 3.5][cpLv];
+                const muteR = 260 + rangeBonus;
+                tagMutedRegions.push({ x: this.x, y: this.y, r: muteR, timer: muteDur });
+                // Clear current global tag if player is inside
+                if (squadTagTimer > 0 && dist(this.x, this.y, squadTagX, squadTagY) < muteR) {
+                    squadTagTimer = 0;
+                }
+                // Clear player's "spotted" mark (visual)
+                this.spottedTimer = 0;
+                spawnParticles(this.x, this.y, 8, '#66ffcc', 3);
             }
             spawnParticles(this.x, this.y, 12, '#00f2ff', 2);
             emitNoise(this.x, this.y, 350);
@@ -1387,6 +1475,24 @@ class Player {
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius + 5, 0, Math.PI * 2);
         ctx.stroke();
         ctx.lineWidth = 1;
+        // Spotted indicator — pink crosshair when squad-tagged by a flare
+        if (this.spottedTimer > 0) {
+            const t = clamp(this.spottedTimer / 4, 0, 1);
+            const blink = 0.6 + Math.sin(performance.now() * 0.018) * 0.4;
+            ctx.strokeStyle = 'rgba(255,102,204,' + (t * blink * 0.9) + ')';
+            ctx.lineWidth = 1.5;
+            const cr = this.radius + 12 + Math.sin(performance.now() * 0.008) * 2;
+            ctx.beginPath(); ctx.arc(this.x, this.y, cr, 0, Math.PI * 2); ctx.stroke();
+            // Brackets
+            const bs = cr + 3;
+            ctx.beginPath();
+            ctx.moveTo(this.x - bs, this.y - bs + 4); ctx.lineTo(this.x - bs, this.y - bs); ctx.lineTo(this.x - bs + 4, this.y - bs);
+            ctx.moveTo(this.x + bs, this.y - bs + 4); ctx.lineTo(this.x + bs, this.y - bs); ctx.lineTo(this.x + bs - 4, this.y - bs);
+            ctx.moveTo(this.x - bs, this.y + bs - 4); ctx.lineTo(this.x - bs, this.y + bs); ctx.lineTo(this.x - bs + 4, this.y + bs);
+            ctx.moveTo(this.x + bs, this.y + bs - 4); ctx.lineTo(this.x + bs, this.y + bs); ctx.lineTo(this.x + bs - 4, this.y + bs);
+            ctx.stroke();
+            ctx.lineWidth = 1;
+        }
         // Soft glow layer (no shadowBlur)
         ctx.globalAlpha = 0.25;
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius + 6, 0, Math.PI * 2);
@@ -1446,6 +1552,24 @@ class Player {
             ctx.globalAlpha = 0.7;
             ctx.fillText('×2', this.x, this.y - this.radius - 10);
             ctx.globalAlpha = 1;
+        }
+        // Phase Step CD indicator (only if card owned)
+        if (this.cardLv('phasestep') > 0) {
+            const ready = this.phaseStepCD <= 0 && this.energy >= 35;
+            const lv = this.cardLv('phasestep');
+            const cdMax = [12, 12, 10, 9, 8, 7][lv];
+            const ratio = this.phaseStepCD > 0 ? 1 - this.phaseStepCD / cdMax : 1;
+            const ringR = this.radius + 14;
+            ctx.strokeStyle = ready ? 'rgba(102,221,255,0.9)' : 'rgba(102,221,255,0.25)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, ringR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
+            ctx.stroke();
+            ctx.fillStyle = ready ? '#66ddff' : 'rgba(102,221,255,0.4)';
+            ctx.font = 'bold 8px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('E', this.x + ringR + 6, this.y + 3);
+            ctx.lineWidth = 1;
         }
     }
 }
@@ -1560,6 +1684,8 @@ class Bullet {
         this.radius = 3;
         this.color = owner === 'player' ? '#00f2ff' : '#ff4466';
         this.pierceLeft = 0; // pierce card: how many enemies can pass through
+        this.bounces = 0;    // remaining wall bounces (for some boss bullets)
+        this.cluster = 0;    // if >0, explodes into ring after this many seconds
     }
     update() {
         this.x += this.vx * dt * 60;
@@ -1568,12 +1694,38 @@ class Bullet {
         if (this.traveled > this.maxRange) { this.alive = false; return; }
         if (this.x < -20 || this.x > W + 20 || this.y < -20 || this.y > H + 20) { this.alive = false; return; }
         if (this.markedTimer > 0) this.markedTimer -= dt;
+        // Cluster shell: detonate on timer
+        if (this.cluster > 0) {
+            this.cluster -= dt;
+            if (this.cluster <= 0) {
+                for (let i = 0; i < 8; i++) {
+                    const ba = (Math.PI * 2 / 8) * i;
+                    const b = new Bullet(this.x, this.y, ba, 5, 1, 'enemy');
+                    b.playerDmg = 10; b.markedTimer = 999; b.color = '#ffaa44'; b.radius = 3;
+                    bullets.push(b);
+                }
+                spawnParticles(this.x, this.y, 12, '#ffaa44', 4);
+                this.alive = false;
+                return;
+            }
+        }
         // Wall collision: bullets die on solid wall hit (reflect/fragile handled in handleCollisions)
         const bx = this.x, by = this.y;
         for (const w of walls) {
             if (w instanceof ReflectWall) continue;
             if (w instanceof FragileWall) continue; // both alive/dead skipped — handled in handleCollisions
             if (bx >= w.x && bx <= w.x + w.w && by >= w.y && by <= w.y + w.h) {
+                // Bouncing enemy bullets ricochet once instead of dying
+                if (this.bounces > 0 && this.owner === 'enemy') {
+                    this.bounces--;
+                    // Determine which axis to flip — pick the side closest to bullet exit
+                    const cx = w.x + w.w / 2, cy = w.y + w.h / 2;
+                    const ddx = (bx - cx) / (w.w / 2);
+                    const ddy = (by - cy) / (w.h / 2);
+                    if (Math.abs(ddx) > Math.abs(ddy)) { this.vx = -this.vx; this.x += this.vx * dt * 60 * 2; }
+                    else { this.vy = -this.vy; this.y += this.vy * dt * 60 * 2; }
+                    continue;
+                }
                 this.alive = false; return;
             }
         }
@@ -1951,10 +2103,10 @@ class CardCrate {
 // ═══════════════════════════════════════════════════════════
 // Card route definitions for smart offering
 const CARD_ROUTES = {
-    weapon: ['scatter', 'pierce', 'rapidfire'],
-    sonar:  ['echo', 'doublepulse', 'sonareff', 'sonarslow'],
-    survival: ['speedchip', 'energyharvest', 'energyshield', 'regen'],
-    energy: ['bulleteff', 'quickcharge', 'energycore']
+    weapon:   ['scatter', 'pierce', 'rapidfire', 'ricochet'],
+    sonar:    ['echo', 'doublepulse', 'sonareff', 'sonarslow', 'counterpulse', 'markburst'],
+    survival: ['speedchip', 'energyharvest', 'energyshield', 'regen', 'silencer', 'phasestep'],
+    energy:   ['bulleteff', 'quickcharge', 'energycore']
 };
 function getPlayerRoute() {
     // Find the route the player has invested most in
@@ -1973,12 +2125,17 @@ function rollCards(count) {
 
     // Time-based rarity boost: rare/epic more common as game progresses
     const rarityBoost = clamp(gameTime / 300, 0, 1); // 0→1 over 5 min
+    // Counter-AI cards only meaningful once squad AI shows up. Reduce weight
+    // before that threshold to avoid early-game noise.
+    const COUNTER_AI_CARDS = new Set(['silencer', 'counterpulse', 'ricochet', 'markburst', 'phasestep']);
+    const counterAIScale = gameTime < 120 ? 0.4 : (gameTime < 180 ? 0.7 : 1);
     const pool = [];
     for (const c of available) {
         let weight = c.rarity === 'common' ? 60 : c.rarity === 'rare' ? 30 : 10;
         // Boost rare/epic chances over time
         if (c.rarity === 'rare') weight += Math.round(20 * rarityBoost);
         if (c.rarity === 'epic') weight += Math.round(15 * rarityBoost);
+        if (COUNTER_AI_CARDS.has(c.id)) weight = Math.max(2, Math.round(weight * counterAIScale));
         for (let i = 0; i < weight; i++) pool.push(c);
     }
     const selected = [];
@@ -2114,6 +2271,9 @@ class Enemy {
         const sensesPlayer = dToPlayer < 80;
         const isMarked = this.markedTimer > 0;
         const hasVision = sensesPlayer || isMarked;
+        // Squad tag: a teammate has just broadcast the player's location.
+        // Only certain enemy types can act on tags (hunter/phantom/drainer).
+        const squadTag = SQUAD_TAG_LISTEN[this.type] ? pickupSquadTag(this.x, this.y) : null;
 
         // Swarmlings always lock on player (hive-mind link)
         if (this.type === 'swarmling') {
@@ -2149,6 +2309,12 @@ class Enemy {
                     this.lastKnownX = player.x;
                     this.lastKnownY = player.y;
                     this.stateTimer = 0;
+                } else if (squadTag) {
+                    // Picked up squad broadcast — go check it out
+                    this.state = 'alert';
+                    this.lastKnownX = squadTag.x;
+                    this.lastKnownY = squadTag.y;
+                    this.stateTimer = 0;
                 }
                 break;
             case 'alert':
@@ -2157,9 +2323,20 @@ class Enemy {
                     this.lastKnownX = player.x;
                     this.lastKnownY = player.y;
                     this.stateTimer = 0;
-                    // 猎手：130px 内蓄力 0.2s（边蓄边靠 0.45x），再 1.55x 冲；≥130px 正常追，拉远才重置蓄力
+                    // 猎手：翼包行为 —— 当队友（炮塔/狙击/Boss）正在射击玩家时，
+                    // 不直冲，绕到玩家侧后方 90° 形成包夹；其余情况维持蓄力冲刺
                     if (this.type === 'hunter') {
-                        if (dToPlayer >= 130) {
+                        const flanking = this.shouldFlank();
+                        if (flanking && dToPlayer >= 90) {
+                            // Compute flank target: 130px to player's side
+                            const sideAngle = Math.atan2(this.y - player.y, this.x - player.x);
+                            const flankSide = (this.flankSide || (this.flankSide = (Math.random() < 0.5 ? 1 : -1)));
+                            const tA = sideAngle + flankSide * 1.0;  // ~57° around player
+                            this.lastKnownX = player.x + Math.cos(tA) * 130;
+                            this.lastKnownY = player.y + Math.sin(tA) * 130;
+                            this.chargeTimer = 0;
+                            this.doAlertMove(1.05);
+                        } else if (dToPlayer >= 130) {
                             this.chargeTimer = 0;
                             this.doAlertMove(1.0);
                         } else {
@@ -2183,6 +2360,13 @@ class Enemy {
                     const hearMul = this.type === 'hunter' ? 0.55 : 0.3;
                     this.doAlertMove(hearMul);
                     this.stateTimer += dt;
+                } else if (squadTag) {
+                    // Lost direct contact but got a tag from teammates — keep advancing
+                    this.lastKnownX = squadTag.x;
+                    this.lastKnownY = squadTag.y;
+                    const tagMul = this.type === 'hunter' ? 0.85 : 0.6;
+                    this.doAlertMove(tagMul);
+                    this.stateTimer += dt * 0.6;
                 } else {
                     if (this.type === 'hunter') this.chargeTimer = 0;
                     // BLIND: confused wandering
@@ -2201,6 +2385,8 @@ class Enemy {
                     this.stateTimer = 0;
                     this.contactCooldown = this.type === 'hunter' ? 0.5 : 0.35; // 猎手撞完休息略长再蓄力
                     if (this.type === 'hunter') this.chargeTimer = 0; // 下次需重新蓄力
+                    // Broadcast contact: alerts squad
+                    broadcastSquadTag(player.x, player.y, this.x, this.y);
                 }
                 break;
             case 'search':
@@ -2214,6 +2400,11 @@ class Enemy {
                     this.state = 'alert';
                     this.lastKnownX = player.x;
                     this.lastKnownY = player.y;
+                    this.stateTimer = 0;
+                } else if (squadTag) {
+                    this.state = 'alert';
+                    this.lastKnownX = squadTag.x;
+                    this.lastKnownY = squadTag.y;
                     this.stateTimer = 0;
                 }
                 this.stateTimer += dt;
@@ -2242,6 +2433,30 @@ class Enemy {
         if (lineHitsWall(this.x, this.y, playerNoiseX, playerNoiseY)) return false;
         return d <= Math.min(playerNoiseRadius, this.perceptionRange);
     }
+    // Hunter-only: should I try to flank? True when there's a teammate
+    // suppressing/attacking the player so I can wrap around the side.
+    // GATED: only enabled past FLANK_ENABLE_TIME so early-game hunters
+    // still behave predictably.
+    shouldFlank() {
+        if (gameTime < FLANK_ENABLE_TIME) return false;
+        // Active boss attacking → always flank
+        if (activeBoss && activeBoss.alive) {
+            const dB = dist(activeBoss.x, activeBoss.y, player.x, player.y);
+            if (dB < 500) return true;
+        }
+        // Any teammate within 360px of player that is engaged?
+        for (const e of enemies) {
+            if (e === this || !e.alive) continue;
+            // Suppressors: turret engaged, sniper charging
+            if (e.type === 'turret' && e.engaged) {
+                if (dist(e.x, e.y, player.x, player.y) < 360) return true;
+            }
+            if (e.type === 'sniper' && e.charging) {
+                if (dist(e.x, e.y, player.x, player.y) < 600) return true;
+            }
+        }
+        return false;
+    }
     // Effective speed: apply sonar slow if marked
     eSpeed() { return this.markedTimer > 0 ? this.speed * sonarSlowFactor : this.speed; }
     doPatrol() {
@@ -2269,6 +2484,7 @@ class Enemy {
     }
     takeDamage(dmg) {
         if (!this.alive) return;
+        const wasMarked = this.markedTimer > 0;  // captured BEFORE the hit refreshes mark
         this.hp -= dmg;
         this.markedTimer = Math.max(this.markedTimer, 0.5);
         spawnParticles(this.x, this.y, 3, this.color, 2);
@@ -2282,6 +2498,24 @@ class Enemy {
         }
         if (this.hp <= 0) {
             this.alive = false;
+            // Mark Burst card: killing a sonar-marked enemy detonates an AOE.
+            // This rewards tagging-then-killing playstyle and clears swarms.
+            const mbLv = player.cardLv('markburst');
+            if (mbLv > 0 && wasMarked) {
+                const radius = [0, 60, 90, 120, 150, 180][mbLv];
+                const aoeDmg = [0, 1, 1, 2, 2, 3][mbLv];
+                spawnParticles(this.x, this.y, 14, '#66ffee', 4);
+                for (const e2 of enemies) {
+                    if (!e2.alive || e2 === this) continue;
+                    if (dist(e2.x, e2.y, this.x, this.y) < radius) {
+                        e2.takeDamage(aoeDmg);
+                    }
+                }
+                if (activeBoss && activeBoss.alive && dist(this.x, this.y, activeBoss.x, activeBoss.y) < radius) {
+                    activeBoss.takeDamage(aoeDmg);
+                }
+                pickupTexts.push({ x: this.x, y: this.y - 18, text: '◈ 标记爆破', color: '#66ffee', life: 0.7 });
+            }
             // Apply double score if active
             const isDouble = player && player.scoreBonusTimer > 0;
             const actualScore = isDouble ? this.score * 2 : this.score;
@@ -2464,37 +2698,50 @@ class Enemy {
     }
 }
 
-// Turret — stationary defense tower with visible detection zone
-// ALWAYS shows a faint purple detection ring (220px) — player can see the danger zone
-// When player enters zone → locks on, rapid fire
-// Every 6s: sends signal pulse alerting nearby enemies to player position
-// SONAR JAM: sonar pulse hitting turret → jammed 3s (no shooting, no signals, sparks)
-// On kill → BIG reward (30 HP + 30 energy + 80 score)
+// Turret — stationary defense tower with TWO concentric zones:
+//   • Outer SENTRY zone (360px): you enter → it broadcasts your position
+//     to nearby teammates (squad tag), and fires SLOW tracking flares.
+//     Flares mark you (visible to all enemies for 4s) but do little damage.
+//   • Inner OPEN-FIRE zone (220px): rapid-fire main cannon (high damage).
+// Outside the outer zone: armored — takes only 40% damage from bullets
+// (so you can't safely snipe it from the dark).
+// SONAR JAM: 2 sonar pulses → 3s jam.
+// Kill rewards: full HP+30/E+30 only if killed while you were inside its
+// outer zone (i.e., you fought it fairly). Cheesed (killed from outside)
+// → only E+15 and reduced score (50%).
 class Turret extends Enemy {
     constructor(x, y) {
         super('turret', x, y);
-        this.detectRadius = 220;     // visible detection zone
+        this.detectRadius = 220;     // open-fire ring (red)
+        this.sentryRadius = 360;     // sentry / sensor ring (purple dashed)
         this.attackCooldown = 0.5;
+        this.flareTimer = 1.5;       // sentry flare interval
         this.aimAngle = 0;
-        this.signalTimer = 3;        // first signal after 3s
+        this.signalTimer = 3;
         this.signalInterval = 6;
         this.signalRadius = 0;
         this.signalActive = false;
-        this.signalLineTimer = 0;    // visual line to player on signal
+        this.signalLineTimer = 0;
         this.signalTargetX = 0;
         this.signalTargetY = 0;
-        this.jamTimer = 0;           // jammed by sonar
-        this.sonarHits = 0;          // need 2 sonar hits to jam
-        this.hitByPulses = new Set(); // track which pulse IDs already counted
-        this.engaged = false;        // player in zone?
+        this.jamTimer = 0;
+        this.sonarHits = 0;
+        this.hitByPulses = new Set();
+        this.engaged = false;        // player in INNER zone?
+        this.alerted = false;        // player in OUTER zone?
+        this.broadcastCooldown = 0;  // throttle squad broadcasts
+        this.everEngaged = false;    // tracks if player ever entered outer zone (fair-fight kill)
     }
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
         if (this.markedTimer <= 0) this.markIntensity = 0;
         if (this.hitFlash > 0) this.hitFlash -= dt;
+        if (this.broadcastCooldown > 0) this.broadcastCooldown -= dt;
 
         const dToPlayer = dist(this.x, this.y, player.x, player.y);
         this.engaged = dToPlayer < this.detectRadius;
+        this.alerted = dToPlayer < this.sentryRadius;
+        if (this.alerted) this.everEngaged = true;
 
         // Animate signal pulse ring
         if (this.signalActive) {
@@ -2509,7 +2756,7 @@ class Turret extends Enemy {
         }
 
         if (this.engaged) {
-            // Player in detection zone → lock on and fire
+            // INNER zone: rapid fire
             this.state = 'alert';
             this.aimAngle = Math.atan2(player.y - this.y, player.x - this.x);
             this.lastKnownX = player.x;
@@ -2517,26 +2764,54 @@ class Turret extends Enemy {
 
             this.attackCooldown -= dt;
             if (this.attackCooldown <= 0) {
-                // Fire with slight inaccuracy
                 const spread = rand(-0.1, 0.1);
                 const b = new Bullet(this.x, this.y, this.aimAngle + spread, 7, 1, 'enemy');
                 b.playerDmg = Math.ceil(ENEMY_CFG.turret.bulletDmg * (this.tierDmgMul || 1));
-                b.markedTimer = 999; // turret bullets always visible
-                b.color = '#cc66ff';  // purple to match turret
+                b.markedTimer = 999;
+                b.color = '#cc66ff';
                 bullets.push(b);
                 this.attackCooldown = 0.45;
             }
+            // Continuous squad tag while engaged (cheap, every 0.8s)
+            if (this.broadcastCooldown <= 0) {
+                broadcastSquadTag(player.x, player.y, this.x, this.y);
+                this.broadcastCooldown = 0.8;
+            }
+        } else if (this.alerted) {
+            // OUTER zone: sentry mode — track, broadcast, suppress with flares
+            this.state = 'alert';
+            this.aimAngle = lerp(this.aimAngle, Math.atan2(player.y - this.y, player.x - this.x), 0.1);
 
-            // (Signal/report functionality removed — turret is pure combat threat now)
+            // Flare suppression only enabled in mid/late game
+            if (gameTime >= TURRET_FLARE_TIME) {
+                this.flareTimer -= dt;
+                if (this.flareTimer <= 0) {
+                    this.flareTimer = 1.4;
+                    // Slow tracking flare — does small dmg + applies a "spotted" mark
+                    const f = new Bullet(this.x, this.y, this.aimAngle, 3.2, 1, 'enemy');
+                    f.playerDmg = 6;
+                    f.markedTimer = 999;
+                    f.color = '#ff66cc';
+                    f.radius = 5;
+                    f.flare = true;       // identify in collision: marks player on hit
+                    bullets.push(f);
+                }
+            }
+            if (this.broadcastCooldown <= 0) {
+                broadcastSquadTag(player.x, player.y, this.x, this.y);
+                this.broadcastCooldown = 1.2;
+            }
+            this.attackCooldown = Math.max(this.attackCooldown, 0.5);
         } else {
             this.state = 'patrol';
             this.attackCooldown = Math.max(this.attackCooldown, 0.5);
+            this.flareTimer = Math.max(this.flareTimer, 0.8);
             this.signalTimer = Math.max(this.signalTimer, 2);
         }
     }
     // Sonar jam: called from handleCollisions
     sonarStun(pulseId) {
-        if (pulseId && this.hitByPulses.has(pulseId)) return; // same pulse, ignore
+        if (pulseId && this.hitByPulses.has(pulseId)) return;
         if (pulseId) this.hitByPulses.add(pulseId);
         this.sonarHits++;
         spawnParticles(this.x, this.y, 4, '#00f2ff', 1.5);
@@ -2547,57 +2822,97 @@ class Turret extends Enemy {
             spawnParticles(this.x, this.y, 6, '#00f2ff', 2);
         }
     }
+    // Range-based armor: outside the outer ring, take only 40% damage.
+    // This is the anti-cheese mechanic — but only kicks in mid/late game
+    // so early-game players keep their familiar fight rhythm.
     takeDamage(dmg) {
-        this.hp -= dmg;
+        const dToPlayer = dist(this.x, this.y, player.x, player.y);
+        let actual = dmg;
+        const armorActive = gameTime >= TURRET_RANGE_ARMOR_TIME;
+        if (armorActive && dToPlayer > this.sentryRadius) {
+            actual = Math.max(1, dmg * 0.4);
+            // Show armor sparks
+            spawnParticles(this.x, this.y, 2, '#88aaff', 1.5);
+        }
+        this.hp -= actual;
         this.markedTimer = Math.max(this.markedTimer, 0.5);
         spawnParticles(this.x, this.y, 6, this.color, 2);
         if (this.hp > 0) {
             this.hitFlash = 0.12;
             SFX.enemyHit();
-            const dmgText = Number.isInteger(dmg) ? dmg : dmg.toFixed(1);
-            pickupTexts.push({ x: this.x + rand(-8, 8), y: this.y - this.size - 5, text: '-' + dmgText, color: '#ffffff', life: 0.5 });
+            const dmgText = Number.isInteger(actual) ? actual : actual.toFixed(1);
+            pickupTexts.push({ x: this.x + rand(-8, 8), y: this.y - this.size - 5, text: '-' + dmgText, color: dToPlayer > this.sentryRadius ? '#88aaff' : '#ffffff', life: 0.5 });
         }
         if (this.hp <= 0) {
             this.alive = false;
             const isDouble = player && player.scoreBonusTimer > 0;
-            const baseScore = 80;
+            // Fair fight: player engaged turret at some point (entered outer zone),
+            // OR it's still the early/mid game where the anti-cheese isn't active yet.
+            const fair = this.everEngaged || gameTime < TURRET_RANGE_ARMOR_TIME;
+            const baseScore = fair ? 80 : 40;
             const turretScore = isDouble ? baseScore * 2 : baseScore;
             score += turretScore;
             spawnParticles(this.x, this.y, 12, this.color, 3);
-            spawnParticles(this.x, this.y, 8, '#ffcc00', 2);
-            // BIG reward: HP + energy + energy orb
-            player.hp = Math.min(player.maxHp, player.hp + 30);
-            player.energy = Math.min(player.getMaxEnergy(), player.energy + 30);
-            energyOrbs.push({ x: this.x, y: this.y, life: 12, amount: 25 });
-            // Pickup text
-            if (typeof pickupTexts !== 'undefined') {
-                const tLabel = isDouble ? 'TURRET DOWN! +' + baseScore + ' ×2' : 'TURRET DOWN! +' + baseScore;
-                pickupTexts.push({ x: this.x, y: this.y - 20, text: tLabel, color: isDouble ? '#ffee44' : '#ffcc00', life: 2 });
-                pickupTexts.push({ x: this.x, y: this.y, text: 'HP+30  E+30', color: '#aa44ff', life: 1.8 });
+            spawnParticles(this.x, this.y, 8, fair ? '#ffcc00' : '#aa44ff', 2);
+            // Reward differs by play style
+            if (fair) {
+                player.hp = Math.min(player.maxHp, player.hp + 30);
+                player.energy = Math.min(player.getMaxEnergy(), player.energy + 30);
+                energyOrbs.push({ x: this.x, y: this.y, life: 12, amount: 25 });
+                if (typeof pickupTexts !== 'undefined') {
+                    const tLabel = isDouble ? 'TURRET DOWN! +' + baseScore + ' ×2' : 'TURRET DOWN! +' + baseScore;
+                    pickupTexts.push({ x: this.x, y: this.y - 20, text: tLabel, color: isDouble ? '#ffee44' : '#ffcc00', life: 2 });
+                    pickupTexts.push({ x: this.x, y: this.y, text: 'HP+30  E+30', color: '#aa44ff', life: 1.8 });
+                }
+            } else {
+                // Cheesed kill — minimal reward
+                player.energy = Math.min(player.getMaxEnergy(), player.energy + 15);
+                energyOrbs.push({ x: this.x, y: this.y, life: 10, amount: 12 });
+                if (typeof pickupTexts !== 'undefined') {
+                    const tLabel = isDouble ? '远程偷塔 +' + baseScore + ' ×2' : '远程偷塔 +' + baseScore;
+                    pickupTexts.push({ x: this.x, y: this.y - 20, text: tLabel, color: '#888888', life: 2 });
+                    pickupTexts.push({ x: this.x, y: this.y, text: 'E+15 (无丰厚奖励)', color: '#888888', life: 1.8 });
+                }
             }
         }
     }
     draw() {
-        // ALWAYS draw detection zone ring (visible in the dark!)
-        // This is the key "fairness" visual — player can see the danger area
-        const zonePulse = 0.12 + Math.sin(performance.now() * 0.002) * 0.04;
+        // OUTER sentry zone — visible at all times
+        const sentryPulse = 0.08 + Math.sin(performance.now() * 0.0018) * 0.03;
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.detectRadius, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(170,68,255,' + zonePulse + ')';
+        ctx.arc(this.x, this.y, this.sentryRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(170,68,255,' + sentryPulse + ')';
         ctx.lineWidth = 1;
-        ctx.setLineDash([4, 8]);
+        ctx.setLineDash([2, 10]);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // When engaged: inner glow fill
+        // INNER open-fire zone
+        const zonePulse = 0.14 + Math.sin(performance.now() * 0.002) * 0.05;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.detectRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,68,140,' + zonePulse + ')';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 8]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineWidth = 1;
+
+        // Engaged glow
         if (this.engaged && this.jamTimer <= 0) {
-            ctx.fillStyle = 'rgba(170,68,255,0.02)';
+            ctx.fillStyle = 'rgba(255,68,140,0.025)';
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.detectRadius, 0, Math.PI * 2);
             ctx.fill();
         }
+        if (this.alerted && !this.engaged && this.jamTimer <= 0) {
+            ctx.fillStyle = 'rgba(170,68,255,0.012)';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.sentryRadius, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
-        // Signal pulse ring (visible warning to player)
+        // Signal pulse ring
         if (this.signalActive) {
             const alpha = clamp(1 - this.signalRadius / 350, 0, 0.35);
             ctx.beginPath();
@@ -2608,33 +2923,18 @@ class Turret extends Enemy {
             ctx.lineWidth = 1;
         }
 
-        // Signal targeting line: shows turret reporting player position
-        if (this.signalLineTimer > 0) {
-            const t = this.signalLineTimer / 1.2;
-            const blink = Math.sin(performance.now() * 0.02) > 0 ? 1 : 0.3;
-            ctx.strokeStyle = 'rgba(255,100,255,' + (t * 0.4 * blink) + ')';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([3, 6]);
+        // Aim line in sentry mode (subtle)
+        if (this.alerted && !this.engaged && this.jamTimer <= 0) {
+            ctx.strokeStyle = 'rgba(255,100,200,0.18)';
+            ctx.setLineDash([3, 8]);
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
-            ctx.lineTo(this.signalTargetX, this.signalTargetY);
+            ctx.lineTo(this.x + Math.cos(this.aimAngle) * 80, this.y + Math.sin(this.aimAngle) * 80);
             ctx.stroke();
             ctx.setLineDash([]);
-            // Pulsing crosshair at player's reported position
-            const cr = 10 + (1 - t) * 5;
-            ctx.strokeStyle = 'rgba(255,100,255,' + (t * 0.35) + ')';
-            ctx.beginPath(); ctx.arc(this.signalTargetX, this.signalTargetY, cr, 0, Math.PI * 2); ctx.stroke();
-            // Small cross
-            ctx.beginPath();
-            ctx.moveTo(this.signalTargetX - 5, this.signalTargetY);
-            ctx.lineTo(this.signalTargetX + 5, this.signalTargetY);
-            ctx.moveTo(this.signalTargetX, this.signalTargetY - 5);
-            ctx.lineTo(this.signalTargetX, this.signalTargetY + 5);
-            ctx.stroke();
-            ctx.lineWidth = 1;
         }
 
-        // Jammed: sparking effect
+        // Jammed sparks
         if (this.jamTimer > 0) {
             ctx.fillStyle = '#00f2ff';
             for (let i = 0; i < 4; i++) {
@@ -2642,7 +2942,6 @@ class Turret extends Enemy {
                 ctx.fillRect(this.x + rand(-12, 12), this.y + rand(-12, 12), 2, 2);
             }
             ctx.globalAlpha = 1;
-            // "JAMMED" text
             ctx.fillStyle = '#00f2ff';
             ctx.font = '8px monospace';
             ctx.textAlign = 'center';
@@ -2676,19 +2975,70 @@ class Sniper extends Enemy {
         this.cooldown = 0;          // post-fire cooldown before next charge
         this.flinching = false;
         this.hitByPulses = new Set(); // track which pulse IDs already counted
+        this.repositionTimer = 4;   // every few seconds: try to move to better position
+        this.coverGoalX = x;
+        this.coverGoalY = y;
+        this.hasCoverGoal = false;
     }
     update() {
         if (this.markedTimer > 0) this.markedTimer -= dt;
         if (this.markedTimer <= 0) this.markIntensity = 0;
         if (this.hitFlash > 0) this.hitFlash -= dt;
 
-        // Slow drift
         const ss = this.eSpeed();
-        this.patrolAngle += rand(-0.008, 0.008);
-        this.x += Math.cos(this.patrolAngle) * ss * dt * 60;
-        this.y += Math.sin(this.patrolAngle) * ss * dt * 60;
+
+        // ── Tactical repositioning: pick a spot near a wall with line-of-fire to player ──
+        // The sniper actively looks for a position that has cover from one side AND
+        // a clear shot to the player. This makes terrain matter for snipers.
+        // GATED: only active past SNIPER_COVER_TIME so early-game snipers
+        // are still vulnerable to flanking.
+        const coverEnabled = gameTime >= SNIPER_COVER_TIME;
+        this.repositionTimer -= dt;
+        if (coverEnabled && !this.charging && this.cooldown <= 0 && this.repositionTimer <= 0) {
+            this.repositionTimer = 5 + rand(0, 2);
+            if (walls.length > 0 && Math.random() < 0.6) {
+                // Sample a few candidate positions; pick the first that has LOS to player + nearby wall
+                for (let tries = 0; tries < 6; tries++) {
+                    const a = rand(0, Math.PI * 2);
+                    const r = rand(180, 320);
+                    const cx = clamp(player.x + Math.cos(a) * r, 60, W - 60);
+                    const cy = clamp(player.y + Math.sin(a) * r, 60, H - 60);
+                    if (pointInWall(cx, cy)) continue;
+                    // Need: clear line of fire to player AND a nearby wall (cover)
+                    if (lineHitsWall(cx, cy, player.x, player.y)) continue;
+                    const nw = distToNearestWall(cx, cy);
+                    if (!nw || nw.dist > 60) continue;
+                    this.coverGoalX = cx;
+                    this.coverGoalY = cy;
+                    this.hasCoverGoal = true;
+                    break;
+                }
+            }
+        }
+        // Move toward cover goal if we have one, else slow drift
+        if (this.hasCoverGoal && !this.charging) {
+            const gx = this.coverGoalX - this.x, gy = this.coverGoalY - this.y;
+            const gd = Math.hypot(gx, gy);
+            if (gd > 8) {
+                this.x += (gx / gd) * ss * 1.5 * dt * 60;
+                this.y += (gy / gd) * ss * 1.5 * dt * 60;
+            } else {
+                this.hasCoverGoal = false;
+            }
+        } else {
+            // Slow drift
+            this.patrolAngle += rand(-0.008, 0.008);
+            this.x += Math.cos(this.patrolAngle) * ss * dt * 60;
+            this.y += Math.sin(this.patrolAngle) * ss * dt * 60;
+        }
         this.x = clamp(this.x, 40, W - 40);
         this.y = clamp(this.y, 40, H - 40);
+        // Wall collision
+        for (const w of walls) {
+            if (w instanceof FragileWall && !w.alive) continue;
+            const push = pushCircleOutOfRect(this.x, this.y, this.size * 0.6, w.x, w.y, w.w, w.h);
+            if (push) { this.x = push.x; this.y = push.y; this.hasCoverGoal = false; }
+        }
 
         // Stun recovery
         if (this.stunTimer > 0) {
@@ -2711,8 +3061,14 @@ class Sniper extends Enemy {
         if (!this.scanTimer) this.scanTimer = 0;
         this.scanTimer += dt;
 
+        // Don't shoot through walls — require LOS
+        const hasLOS = !lineHitsWall(this.x, this.y, player.x, player.y);
+
         if (!this.charging) {
-            // Listen for noise → start charging immediately
+            if (!hasLOS) {
+                // No LOS: don't waste a shot. Just keep repositioning.
+                return;
+            }
             if (hearsPlayer) {
                 this.charging = true;
                 this.chargeTimer = 0;
@@ -2720,7 +3076,6 @@ class Sniper extends Enemy {
                 this.targetY = playerNoiseY;
                 this.scanTimer = 0;
             } else if (this.scanTimer > 4) {
-                // Auto-scan: no noise for 4s → lock onto player area (inaccurate)
                 this.charging = true;
                 this.chargeTimer = 0;
                 this.targetX = player.x + rand(-60, 60);
@@ -2728,14 +3083,12 @@ class Sniper extends Enemy {
                 this.scanTimer = 0;
             }
         } else {
-            // Charging: track noise (laser follows sound)
             if (hearsPlayer) {
                 const trackSpeed = 0.05 + (this.chargeTimer / this.chargeMax) * 0.1;
                 this.targetX = lerp(this.targetX, playerNoiseX, trackSpeed);
                 this.targetY = lerp(this.targetY, playerNoiseY, trackSpeed);
                 this.scanTimer = 0;
             } else {
-                // No noise: aim drifts toward player slowly (imprecise but still threatening)
                 this.targetX = lerp(this.targetX, player.x + rand(-40, 40), 0.01);
                 this.targetY = lerp(this.targetY, player.y + rand(-40, 40), 0.01);
             }
@@ -2749,13 +3102,16 @@ class Sniper extends Enemy {
                 b.playerDmg = Math.ceil(ENEMY_CFG.sniper.bulletDmg * (this.tierDmgMul || 1));
                 b.color = '#ff4444';
                 b.radius = 4;
-                b.maxRange = 1500; // sniper: extreme range
-                b.markedTimer = 2; // sniper bullet is ALWAYS visible (tracer)
+                b.maxRange = 1500;
+                b.markedTimer = 2;
                 bullets.push(b);
                 spawnParticles(this.x, this.y, 6, '#ff2255', 2);
+                broadcastSquadTag(this.targetX, this.targetY, this.x, this.y);
                 this.charging = false;
                 this.chargeTimer = 0;
-                this.cooldown = 1.5; // 1.5s rest after firing
+                this.cooldown = 1.5;
+                // After firing → reposition to a new cover spot
+                this.repositionTimer = 0.5;
             }
         }
     }
@@ -3111,6 +3467,91 @@ class Drainer extends Enemy {
 let activeBoss = null;
 let bossWarningTimer = 0; // pre-spawn warning
 
+// ═══════════════════════════════════════════════════════════
+//  SQUAD COORDINATION — enemies share a tactical tag of the player
+// ═══════════════════════════════════════════════════════════
+// When an enemy spots / hits the player, they broadcast a "tag" — a
+// last-known position with a timer. Other enemies within `tagShareRadius`
+// of the broadcaster pick it up and route to that position even WITHOUT
+// direct line-of-sight or noise. This makes turrets+snipers act as
+// spotters for hunters who flank from cover.
+//
+// IMPORTANT: To keep the early game readable and learnable, the squad
+// system stays DORMANT until SQUAD_AI_ENABLE_TIME (165s). Before that,
+// broadcasts are no-ops and pickupSquadTag() returns null. Hunters do
+// not flank, snipers don't seek cover, and turrets don't fire flares.
+// This gives the player time to build a deck before facing coordinated
+// AI behaviors.
+const SQUAD_AI_ENABLE_TIME = 165;   // seconds — squad tags become active
+const FLANK_ENABLE_TIME    = 186;   // seconds — hunter wing-flank unlocks (T1)
+const SNIPER_COVER_TIME    = 186;   // seconds — sniper actively seeks cover
+const TURRET_FLARE_TIME    = 165;   // seconds — turret sentry flares activate
+const TURRET_RANGE_ARMOR_TIME = 165;// seconds — turret long-range damage reduction
+function squadAIActive() { return gameTime >= SQUAD_AI_ENABLE_TIME; }
+let squadTagX = 0;
+let squadTagY = 0;
+let squadTagTimer = 0;          // seconds remaining; >0 means tag is active
+const SQUAD_TAG_DURATION = 4;
+const SQUAD_TAG_RADIUS = 380;   // how far the tag is heard
+// Counter-Pulse mute: when player fires a sonar with the counter-pulse
+// card, enemies inside the pulse can't act on tags for `tagMuteTimer`.
+let tagMutedRegions = [];   // {x,y,r,timer}
+function broadcastSquadTag(x, y, sourceX, sourceY) {
+    if (!squadAIActive()) return;  // dormant in early game
+    squadTagX = x; squadTagY = y;
+    squadTagTimer = SQUAD_TAG_DURATION;
+    // Visual ping — a soft purple ring at the broadcasting source
+    if (sourceX !== undefined) {
+        squadPings.push({ x: sourceX, y: sourceY, life: 0.6, maxLife: 0.6 });
+    }
+}
+let squadPings = [];  // {x,y,life,maxLife}
+function updateSquadTag() {
+    if (squadTagTimer > 0) squadTagTimer -= dt;
+    for (let i = squadPings.length - 1; i >= 0; i--) {
+        squadPings[i].life -= dt;
+        if (squadPings[i].life <= 0) squadPings.splice(i, 1);
+    }
+    for (let i = tagMutedRegions.length - 1; i >= 0; i--) {
+        tagMutedRegions[i].timer -= dt;
+        if (tagMutedRegions[i].timer <= 0) tagMutedRegions.splice(i, 1);
+    }
+}
+function drawSquadPings() {
+    for (const p of squadPings) {
+        const t = 1 - p.life / p.maxLife;
+        const r = 14 + t * 36;
+        ctx.strokeStyle = 'rgba(255,120,200,' + ((1 - t) * 0.45) + ')';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.lineWidth = 1;
+    }
+    // Counter-pulse mute regions — soft cyan ring fade
+    for (const m of tagMutedRegions) {
+        const a = clamp(m.timer / 1.5, 0, 1) * 0.18;
+        ctx.strokeStyle = 'rgba(120,255,220,' + a + ')';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 6]);
+        ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+    }
+}
+// Quick check used by Enemy AI: is there a fresh squad tag I can hear?
+function pickupSquadTag(ex, ey) {
+    if (!squadAIActive()) return null;
+    if (squadTagTimer <= 0) return null;
+    // Counter-pulse mute: if this enemy is inside any active mute region,
+    // it temporarily can't process the tag (still has its own senses).
+    for (const m of tagMutedRegions) {
+        if (dist(ex, ey, m.x, m.y) < m.r) return null;
+    }
+    const d = dist(ex, ey, squadTagX, squadTagY);
+    if (d > SQUAD_TAG_RADIUS) return null;
+    return { x: squadTagX, y: squadTagY };
+}
+// Some lower-tier enemies should not be coordinated through tags.
+const SQUAD_TAG_LISTEN = { hunter: true, phantom: true, drainer: true, sniper: false, turret: false, hive: false, swarmling: false, drifter: false };
+
 class Boss {
     constructor(type, hp, x, y) {
         this.type = type;
@@ -3177,144 +3618,395 @@ class Boss {
     }
 }
 
-// Boss 1: Core Satellite (90s) — rotating octagon with 4 core points
+// Boss 1: Core Satellite — armored octagon with 4 weak-point cores.
+// Mechanic: Body is armored (90% damage reduction). Only the 4 rotating
+// core points take full damage. Sonar marks reveal cores; cores pulse
+// brighter when marked. Phase 2 (<50% HP): adds a sweeping laser warning.
 class BossSatellite extends Boss {
     constructor() {
-        super('satellite', 12, W / 2 + rand(-100, 100), rand(60, H - 60));
+        super('satellite', 22, W / 2 + rand(-100, 100), rand(60, H - 60));
         this.score = 200;
-        this.size = 35;
+        this.size = 38;
         this.angle = 0;
         this.attackTimer = 3;
+        this.laserTimer = 6;
+        this.laserCharge = 0;     // 0..1 charging
+        this.laserAngle = 0;
+        this.laserActive = 0;     // seconds remaining of active beam
+        this.coreRadius = 5;
+        this.armorReduction = 0.1; // body takes only 10% dmg
+    }
+    // Override: redirect damage to nearest core; body is armored
+    takeDamage(dmg) {
+        if (!this.alive) return;
+        // Direct (non-positional) hits: armored body absorbs heavily
+        const reduced = Math.max(1, Math.round(dmg * this.armorReduction));
+        super.takeDamage(reduced);
+    }
+    // Custom hit resolver — called by collision when bullet hits
+    takeDamageAt(dmg, hx, hy) {
+        if (!this.alive) return;
+        // Find nearest core point
+        let hitCore = false;
+        for (let i = 0; i < 4; i++) {
+            const a = this.angle + (Math.PI / 2) * i;
+            const cx = this.x + Math.cos(a) * this.size * 0.6;
+            const cy = this.y + Math.sin(a) * this.size * 0.6;
+            if (dist(hx, hy, cx, cy) < this.coreRadius + 6) { hitCore = true; break; }
+        }
+        if (hitCore) {
+            // Spark feedback then full damage via base
+            spawnParticles(hx, hy, 6, '#ffee44', 3);
+            // Bypass armor: route directly to base Boss.takeDamage
+            Boss.prototype.takeDamage.call(this, dmg);
+        } else {
+            spawnParticles(hx, hy, 2, '#88aaff', 1.5);
+            // Armored: use our reduced takeDamage
+            this.takeDamage(dmg);
+        }
     }
     update() {
         super.update();
         if (this.markedTimer > 0) this.markedTimer -= dt;
         this.phaseTimer += dt;
-        this.angle += 0.8 * dt;
-        // Slow chase
-        const a = Math.atan2(player.y - this.y, player.x - this.x);
-        this.x += Math.cos(a) * 1 * dt * 60;
-        this.y += Math.sin(a) * 1 * dt * 60;
+        this.angle += 0.9 * dt;
+        // Slow strafe (orbits player)
+        const toP = Math.atan2(player.y - this.y, player.x - this.x);
+        this.x += Math.cos(toP + Math.PI / 2) * 1.4 * dt * 60;
+        this.y += Math.sin(toP + Math.PI / 2) * 1.4 * dt * 60;
+        // Maintain mid distance
+        const d = dist(this.x, this.y, player.x, player.y);
+        if (d > 320) { this.x += Math.cos(toP) * 1.0 * dt * 60; this.y += Math.sin(toP) * 1.0 * dt * 60; }
+        else if (d < 180) { this.x -= Math.cos(toP) * 1.0 * dt * 60; this.y -= Math.sin(toP) * 1.0 * dt * 60; }
         this.x = clamp(this.x, 50, W - 50);
         this.y = clamp(this.y, 50, H - 50);
-        // Cross-pattern bullets every 3s
+        // Cross-pattern bullets — each core fires
         this.attackTimer -= dt;
         if (this.attackTimer <= 0) {
-            this.attackTimer = 2.8;
+            this.attackTimer = 2.6;
             for (let i = 0; i < 4; i++) {
                 const ba = this.angle + (Math.PI / 2) * i;
-                const b = new Bullet(this.x, this.y, ba, 5, 1, 'enemy');
+                const cx = this.x + Math.cos(ba) * this.size * 0.6;
+                const cy = this.y + Math.sin(ba) * this.size * 0.6;
+                const b = new Bullet(cx, cy, ba, 5, 1, 'enemy');
                 b.playerDmg = 12;
                 b.markedTimer = 999; b.color = '#ff6688'; b.radius = 4;
                 bullets.push(b);
+                spawnParticles(cx, cy, 2, '#ff6688', 1.5);
             }
-            spawnParticles(this.x, this.y, 6, '#ff6688', 2);
+        }
+        // Phase 2: sweeping laser
+        const phase2 = this.hp <= this.maxHp * 0.5;
+        if (phase2) {
+            this.laserTimer -= dt;
+            if (this.laserActive > 0) {
+                this.laserActive -= dt;
+                this.laserAngle += 0.9 * dt;  // sweep
+                // Damage check along beam
+                const bx = this.x + Math.cos(this.laserAngle) * 900;
+                const by = this.y + Math.sin(this.laserAngle) * 900;
+                const distToBeam = pointToSegmentDist(player.x, player.y, this.x, this.y, bx, by);
+                if (distToBeam < 14 && !lineHitsWall(this.x, this.y, player.x, player.y)) {
+                    player.takeDamage(0.6);  // continuous tick (invTimer handled inside)
+                }
+            } else if (this.laserCharge > 0) {
+                this.laserCharge += dt / 1.2;  // 1.2s charge
+                this.laserAngle = Math.atan2(player.y - this.y, player.x - this.x);
+                if (this.laserCharge >= 1) {
+                    this.laserCharge = 0;
+                    this.laserActive = 1.6;
+                    SFX.enemyShoot && SFX.enemyShoot();
+                }
+            } else if (this.laserTimer <= 0) {
+                this.laserTimer = 5.5;
+                this.laserCharge = 0.01;
+            }
         }
     }
     draw() {
-        // Always faintly visible (boss fairness)
         const sonarVis = this.markedTimer > 0 ? clamp(this.markedTimer / 0.5, 0, 1) : 0;
-        const vis = Math.max(0.15, sonarVis);
+        const vis = Math.max(0.18, sonarVis);
         ctx.globalAlpha = vis;
         ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
-        // Octagon body
-        ctx.strokeStyle = '#ff4466'; ctx.lineWidth = 2;
+        // Armored octagon body — darker, layered
+        ctx.fillStyle = 'rgba(80,30,40,0.55)';
+        ctx.strokeStyle = '#ff4466'; ctx.lineWidth = 2.5;
         ctx.beginPath();
         for (let i = 0; i < 8; i++) {
             const a = (Math.PI * 2 / 8) * i;
             const px = Math.cos(a) * this.size, py = Math.sin(a) * this.size;
             i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
         }
-        ctx.closePath(); ctx.stroke();
-        // 4 core points
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        // Inner armor plates
+        ctx.strokeStyle = 'rgba(255,80,100,0.4)'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 0; i < 8; i++) {
+            const a = (Math.PI * 2 / 8) * i;
+            ctx.moveTo(0, 0);
+            ctx.lineTo(Math.cos(a) * this.size, Math.sin(a) * this.size);
+        }
+        ctx.stroke();
+        // 4 weak-point cores — pulse, glow when marked
+        const corePulse = 0.7 + Math.sin(performance.now() * 0.008) * 0.3;
         for (let i = 0; i < 4; i++) {
             const a = (Math.PI / 2) * i;
             const cx = Math.cos(a) * this.size * 0.6, cy = Math.sin(a) * this.size * 0.6;
-            ctx.fillStyle = '#ffcc00';
-            ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
+            // Glow halo
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = '#ffee44';
+            ctx.globalAlpha = vis * 0.4 * corePulse;
+            ctx.beginPath(); ctx.arc(cx, cy, this.coreRadius + 6, 0, Math.PI * 2); ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = vis;
+            // Core
+            ctx.fillStyle = '#ffee44';
+            ctx.beginPath(); ctx.arc(cx, cy, this.coreRadius, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#fff8aa';
+            ctx.beginPath(); ctx.arc(cx, cy, this.coreRadius * 0.5, 0, Math.PI * 2); ctx.fill();
         }
         ctx.restore(); ctx.globalAlpha = 1; ctx.lineWidth = 1;
+        // Laser warning / beam
+        if (this.laserCharge > 0) {
+            ctx.strokeStyle = 'rgba(255,80,100,' + (0.3 + this.laserCharge * 0.5) + ')';
+            ctx.lineWidth = 1 + this.laserCharge * 2;
+            ctx.setLineDash([6, 6]);
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x + Math.cos(this.laserAngle) * 900, this.y + Math.sin(this.laserAngle) * 900);
+            ctx.stroke();
+            ctx.setLineDash([]); ctx.lineWidth = 1;
+        }
+        if (this.laserActive > 0) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            const grad = ctx.createLinearGradient(this.x, this.y,
+                this.x + Math.cos(this.laserAngle) * 900, this.y + Math.sin(this.laserAngle) * 900);
+            grad.addColorStop(0, 'rgba(255,200,80,0.9)');
+            grad.addColorStop(1, 'rgba(255,60,80,0)');
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = 8 + Math.sin(performance.now() * 0.04) * 3;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x + Math.cos(this.laserAngle) * 900, this.y + Math.sin(this.laserAngle) * 900);
+            ctx.stroke();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+            ctx.stroke();
+            ctx.restore();
+        }
         this.drawHPBar();
     }
 }
 
-// Boss 2: Split Mother (180s) — splits into drifters when damaged
+// Helper: distance from point to line segment
+function pointToSegmentDist(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1) return dist(px, py, ax, ay);
+    let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+    t = clamp(t, 0, 1);
+    return dist(px, py, ax + dx * t, ay + dy * t);
+}
+
+// Boss 2: Split Mother — telegraphed lunge + spore bombs.
+// Mechanic: HP loss triggers split-spore drops at PLAYER's location (after telegraph).
+// Performs a charged dash every ~6s (telegraph 1s, then sprint).
+// Bullet ring is replaced by alternating wide-and-tight bursts for variety.
 class BossSplitMother extends Boss {
     constructor() {
-        super('splitmom', 25, rand(100, W - 100), rand(100, H - 100));
+        super('splitmom', 38, rand(100, W - 100), rand(100, H - 100));
         this.score = 300;
-        this.size = 40;
-        this.attackTimer = 3;
-        this.lastSplitHp = 25;
+        this.size = 42;
+        this.attackTimer = 2.5;
+        this.lastSplitHp = 38;
         this.pathAngle = rand(0, Math.PI * 2);
+        // Lunge state machine: 'idle' | 'wind' | 'dash' | 'recover'
+        this.lungeState = 'idle';
+        this.lungeTimer = 5;
+        this.lungeStateTimer = 0;
+        this.lungeAngle = 0;
+        this.burstAlt = 0;
+        this.spores = [];   // pending spore drops {x,y,timer}
     }
     update() {
         super.update();
         if (this.markedTimer > 0) this.markedTimer -= dt;
         this.phaseTimer += dt;
-        // Chase player (not just drift)
-        const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
-        this.pathAngle = lerp(this.pathAngle, toPlayer, 0.03);
-        this.x += Math.cos(this.pathAngle) * 2.2 * dt * 60;
-        this.y += Math.sin(this.pathAngle) * 2.2 * dt * 60;
+
+        // ── Lunge state machine ──
+        if (this.lungeState === 'idle') {
+            // Slow drift toward player
+            const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
+            this.pathAngle = lerp(this.pathAngle, toPlayer, 0.03);
+            this.x += Math.cos(this.pathAngle) * 1.6 * dt * 60;
+            this.y += Math.sin(this.pathAngle) * 1.6 * dt * 60;
+            this.lungeTimer -= dt;
+            if (this.lungeTimer <= 0) {
+                this.lungeState = 'wind';
+                this.lungeStateTimer = 0.9;
+                this.lungeAngle = Math.atan2(player.y - this.y, player.x - this.x);
+            }
+        } else if (this.lungeState === 'wind') {
+            // Telegraph: pull back slightly, lock direction (re-aim slowly)
+            this.lungeStateTimer -= dt;
+            this.lungeAngle = lerp(this.lungeAngle, Math.atan2(player.y - this.y, player.x - this.x), 0.05);
+            this.x -= Math.cos(this.lungeAngle) * 0.6 * dt * 60;
+            this.y -= Math.sin(this.lungeAngle) * 0.6 * dt * 60;
+            if (this.lungeStateTimer <= 0) {
+                this.lungeState = 'dash';
+                this.lungeStateTimer = 0.55;
+                spawnParticles(this.x, this.y, 10, '#ff3355', 4);
+            }
+        } else if (this.lungeState === 'dash') {
+            this.lungeStateTimer -= dt;
+            const spd = 9.5;
+            this.x += Math.cos(this.lungeAngle) * spd * dt * 60;
+            this.y += Math.sin(this.lungeAngle) * spd * dt * 60;
+            // Trail
+            if (Math.random() < 0.6) spawnParticles(this.x, this.y, 1, '#ff6688', 1);
+            // Contact damage on dash
+            if (dist(this.x, this.y, player.x, player.y) < this.size + player.radius) {
+                player.takeDamage(22);
+            }
+            if (this.lungeStateTimer <= 0) {
+                this.lungeState = 'recover';
+                this.lungeStateTimer = 0.8;
+            }
+        } else if (this.lungeState === 'recover') {
+            this.lungeStateTimer -= dt;
+            if (this.lungeStateTimer <= 0) {
+                this.lungeState = 'idle';
+                this.lungeTimer = 5.5 + rand(0, 1.5);
+            }
+        }
         this.x = clamp(this.x, 60, W - 60); this.y = clamp(this.y, 60, H - 60);
-        // Burst of 8 bullets
+
+        // Alternating bursts: tight aimed cone vs wide ring
         this.attackTimer -= dt;
-        if (this.attackTimer <= 0) {
-            this.attackTimer = 2.5;
-            for (let i = 0; i < 8; i++) {
-                const ba = (Math.PI * 2 / 8) * i + this.phaseTimer;
-                const b = new Bullet(this.x, this.y, ba, 4.5, 1, 'enemy');
-                b.playerDmg = 12; b.markedTimer = 999; b.color = '#ff4444'; b.radius = 3;
-                bullets.push(b);
+        if (this.attackTimer <= 0 && this.lungeState !== 'dash') {
+            this.attackTimer = 2.4;
+            this.burstAlt ^= 1;
+            if (this.burstAlt) {
+                // Tight 5-bullet cone toward player
+                const toP = Math.atan2(player.y - this.y, player.x - this.x);
+                for (let i = -2; i <= 2; i++) {
+                    const b = new Bullet(this.x, this.y, toP + i * 0.14, 5.5, 1, 'enemy');
+                    b.playerDmg = 12; b.markedTimer = 999; b.color = '#ff4444'; b.radius = 3;
+                    bullets.push(b);
+                }
+            } else {
+                // Wide 10-bullet ring
+                for (let i = 0; i < 10; i++) {
+                    const ba = (Math.PI * 2 / 10) * i + this.phaseTimer;
+                    const b = new Bullet(this.x, this.y, ba, 4.2, 1, 'enemy');
+                    b.playerDmg = 10; b.markedTimer = 999; b.color = '#ff6677'; b.radius = 3;
+                    bullets.push(b);
+                }
+            }
+        }
+
+        // ── Spore drops (telegraphed AOE at player position) ──
+        for (let i = this.spores.length - 1; i >= 0; i--) {
+            const s = this.spores[i];
+            s.timer -= dt;
+            if (s.timer <= 0) {
+                // Detonate: spawn 6 outward bullets + 1 hunter
+                for (let k = 0; k < 6; k++) {
+                    const ba = (Math.PI * 2 / 6) * k;
+                    const b = new Bullet(s.x, s.y, ba, 4.5, 1, 'enemy');
+                    b.playerDmg = 10; b.markedTimer = 999; b.color = '#ff3355'; b.radius = 3;
+                    bullets.push(b);
+                }
+                let hunterCount = 0;
+                for (const e of enemies) { if (e.type === 'hunter' && e.alive) hunterCount++; }
+                if (hunterCount < 12) {
+                    const e = new Enemy('hunter', s.x, s.y);
+                    e.state = 'alert'; e.lastKnownX = player.x; e.lastKnownY = player.y;
+                    e.markedTimer = 3; e.markIntensity = 1;
+                    enemies.push(e);
+                }
+                spawnParticles(s.x, s.y, 14, '#ff3355', 4);
+                this.spores.splice(i, 1);
             }
         }
     }
     takeDamage(dmg) {
         const hpBefore = this.hp;
         super.takeDamage(dmg);
-        // Split: spawn hunters every 5 HP lost (cap at 8 split-hunters on screen)
-        const threshold = 5;
+        // Drop a spore at player's CURRENT location every 8 HP lost
+        const threshold = 8;
         if (Math.floor(hpBefore / threshold) > Math.floor(Math.max(this.hp, 0) / threshold)) {
-            let hunterCount = 0;
-            for (const e of enemies) { if (e.type === 'hunter' && e.alive) hunterCount++; }
-            const spawnCount = Math.min(3, Math.max(0, 15 - hunterCount));
-            for (let i = 0; i < spawnCount; i++) {
-                const a = rand(0, Math.PI * 2);
-                const e = new Enemy('hunter', this.x + Math.cos(a) * 40, this.y + Math.sin(a) * 40);
-                e.state = 'alert'; e.lastKnownX = player.x; e.lastKnownY = player.y;
-                e.markedTimer = 3;
-                e.markIntensity = 1;
-                enemies.push(e);
-            }
-            spawnParticles(this.x, this.y, 8, '#ff3355', 3);
-            pickupTexts.push({ x: this.x, y: this.y - 20, text: '⚠ 分裂!', color: '#ff3355', life: 2 });
+            this.spores.push({ x: player.x, y: player.y, timer: 1.4 });
+            pickupTexts.push({ x: player.x, y: player.y - 24, text: '⚠ 孢子!', color: '#ff3355', life: 1.2 });
         }
     }
     draw() {
         const sonarVis = this.markedTimer > 0 ? clamp(this.markedTimer / 0.5, 0, 1) : 0;
         const vis = Math.max(0.15, sonarVis);
         const pulse = 0.8 + Math.sin(performance.now() * 0.004) * 0.2;
+        // Wind-up telegraph: pulsing red ring
+        if (this.lungeState === 'wind') {
+            const t = 1 - (this.lungeStateTimer / 0.9);
+            ctx.strokeStyle = 'rgba(255,50,80,' + (0.3 + t * 0.5) + ')';
+            ctx.lineWidth = 2 + t * 2;
+            ctx.setLineDash([8, 6]);
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x + Math.cos(this.lungeAngle) * 600, this.y + Math.sin(this.lungeAngle) * 600);
+            ctx.stroke();
+            ctx.setLineDash([]); ctx.lineWidth = 1;
+        }
         ctx.globalAlpha = vis * pulse;
-        ctx.fillStyle = '#ff3355';
+        ctx.fillStyle = this.lungeState === 'dash' ? '#ff5577' : '#ff3355';
         ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
-        // Inner pulsing ring
+        // Spike crown
         ctx.strokeStyle = '#ff6688'; ctx.lineWidth = 2;
-        const inner = this.size * 0.6 + Math.sin(performance.now() * 0.006) * 4;
+        for (let i = 0; i < 8; i++) {
+            const a = (Math.PI * 2 / 8) * i + this.phaseTimer * 0.5;
+            const r1 = this.size * 0.85;
+            const r2 = this.size * (1.05 + Math.sin(performance.now() * 0.005 + i) * 0.08);
+            ctx.beginPath();
+            ctx.moveTo(this.x + Math.cos(a) * r1, this.y + Math.sin(a) * r1);
+            ctx.lineTo(this.x + Math.cos(a) * r2, this.y + Math.sin(a) * r2);
+            ctx.stroke();
+        }
+        // Inner pulsing ring
+        ctx.strokeStyle = '#ff88aa'; ctx.lineWidth = 2;
+        const inner = this.size * 0.55 + Math.sin(performance.now() * 0.006) * 4;
         ctx.beginPath(); ctx.arc(this.x, this.y, inner, 0, Math.PI * 2); ctx.stroke();
         ctx.globalAlpha = 1; ctx.lineWidth = 1;
+        // Pending spores
+        for (const s of this.spores) {
+            const t = 1 - (s.timer / 1.4);
+            ctx.strokeStyle = 'rgba(255,50,80,' + (0.4 + t * 0.5) + ')';
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(s.x, s.y, 8 + t * 26, 0, Math.PI * 2); ctx.stroke();
+            ctx.fillStyle = 'rgba(255,50,80,' + (0.15 + t * 0.25) + ')';
+            ctx.beginPath(); ctx.arc(s.x, s.y, 6, 0, Math.PI * 2); ctx.fill();
+            ctx.lineWidth = 1;
+        }
         this.drawHPBar();
     }
 }
 
-// Boss 3: Signal Jammer (360s) — reduces sonar effectiveness nearby
+// Boss 3: Signal Jammer — sonar-suppression specialist.
+// Mechanic: Large jam aura (radius 280) HALVES sonar mark times AND
+// silently drains player ENERGY at 4/s when player is inside aura.
+// Periodic EMP pulse: telegraphed shockwave that briefly blacks-out the
+// HUD radar and disables sonar pulse expansion for 1.2s.
+// Outside aura, jammer is HARDER to mark (fades faster).
 class BossJammer extends Boss {
     constructor() {
-        super('jammer', 28, rand(100, W - 100), rand(100, H - 100));
+        super('jammer', 42, rand(100, W - 100), rand(100, H - 100));
         this.score = 500;
-        this.size = 38;
-        this.jamRadius = 180;
+        this.size = 40;
+        this.jamRadius = 280;
         this.attackTimer = 3;
+        this.empTimer = 9;
+        this.empCharge = 0;       // 0..1
+        this.empPulse = 0;        // active pulse radius
+        this.empMaxRadius = 480;
         this.vertices = [];
         for (let i = 0; i < 7; i++) {
             this.vertices.push({ a: (Math.PI * 2 / 7) * i, r: this.size + rand(-8, 8) });
@@ -3322,97 +4014,208 @@ class BossJammer extends Boss {
     }
     update() {
         super.update();
-        if (this.markedTimer > 0) this.markedTimer -= dt;
+        // Jammer fades sonar marks faster on itself
+        if (this.markedTimer > 0) this.markedTimer -= dt * 1.6;
         this.phaseTimer += dt;
-        // Chase player
-        const a = Math.atan2(player.y - this.y, player.x - this.x);
-        this.x += Math.cos(a) * 1.5 * dt * 60;
-        this.y += Math.sin(a) * 1.5 * dt * 60;
-        this.x = clamp(this.x, 50, W - 50); this.y = clamp(this.y, 50, H - 50);
-        // 3-bullet spread toward player
+        // Keep mid distance — kites the player
+        const toP = Math.atan2(player.y - this.y, player.x - this.x);
+        const d = dist(this.x, this.y, player.x, player.y);
+        const target = 240;
+        const dir = d < target ? -1 : 1;
+        const spd = 1.7;
+        this.x += Math.cos(toP) * spd * dir * dt * 60;
+        this.y += Math.sin(toP) * spd * dir * dt * 60;
+        // Lateral wobble
+        this.x += Math.cos(toP + Math.PI / 2) * Math.sin(this.phaseTimer * 1.3) * 1.2 * dt * 60;
+        this.y += Math.sin(toP + Math.PI / 2) * Math.sin(this.phaseTimer * 1.3) * 1.2 * dt * 60;
+        this.x = clamp(this.x, 60, W - 60); this.y = clamp(this.y, 60, H - 60);
+
+        // Energy drain when player inside aura
+        if (dist(this.x, this.y, player.x, player.y) < this.jamRadius) {
+            player.energy = Math.max(0, player.energy - 4 * dt);
+        }
+
+        // Bullet attack: 5-shot fan, slow but heavy
         this.attackTimer -= dt;
         if (this.attackTimer <= 0) {
-            this.attackTimer = 2.5;
-            const toP = Math.atan2(player.y - this.y, player.x - this.x);
-            for (let i = -1; i <= 1; i++) {
-                const b = new Bullet(this.x, this.y, toP + i * 0.2, 6, 1, 'enemy');
-                b.playerDmg = 15; b.markedTimer = 999; b.color = '#cccccc'; b.radius = 4;
+            this.attackTimer = 2.6;
+            const aimP = Math.atan2(player.y - this.y, player.x - this.x);
+            for (let i = -2; i <= 2; i++) {
+                const b = new Bullet(this.x, this.y, aimP + i * 0.18, 5.5, 1, 'enemy');
+                b.playerDmg = 14; b.markedTimer = 999; b.color = '#ddeeff'; b.radius = 4;
                 bullets.push(b);
+            }
+        }
+
+        // EMP cycle
+        if (this.empPulse > 0) {
+            this.empPulse += 600 * dt;
+            if (this.empPulse >= this.empMaxRadius) this.empPulse = 0;
+        } else if (this.empCharge > 0) {
+            this.empCharge += dt / 1.5;  // 1.5s charge
+            if (this.empCharge >= 1) {
+                this.empCharge = 0;
+                this.empPulse = 1;
+                // Apply EMP effect — kill all active player pulses
+                for (const p of pulses) p.alive = false;
+                // Flash visual + small dmg if hit
+                if (dist(this.x, this.y, player.x, player.y) < 200) {
+                    player.takeDamage(8);
+                }
+                jammerEMPFlash = 1.0; // global hud flash (declared below)
+                spawnParticles(this.x, this.y, 20, '#ddeeff', 5);
+            }
+        } else {
+            this.empTimer -= dt;
+            if (this.empTimer <= 0) {
+                this.empTimer = 8 + rand(0, 2);
+                this.empCharge = 0.01;
             }
         }
     }
     draw() {
-        const jamAlpha = 0.04 + Math.sin(performance.now() * 0.003) * 0.02;
-        ctx.fillStyle = 'rgba(200,200,220,' + jamAlpha + ')';
+        // Jam aura — pulse, much more visible
+        const auraPulse = 0.06 + Math.sin(performance.now() * 0.003) * 0.025;
+        ctx.fillStyle = 'rgba(200,220,255,' + auraPulse + ')';
         ctx.beginPath(); ctx.arc(this.x, this.y, this.jamRadius, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = 'rgba(200,200,220,0.08)';
-        ctx.setLineDash([3, 5]);
-        ctx.beginPath(); ctx.arc(this.x, this.y, this.jamRadius, 0, Math.PI * 2); ctx.stroke();
+        // Static rings inside aura
+        ctx.strokeStyle = 'rgba(180,210,240,0.12)';
+        ctx.setLineDash([4, 6]);
+        for (let r = 80; r < this.jamRadius; r += 60) {
+            ctx.beginPath(); ctx.arc(this.x, this.y, r + (performance.now() * 0.02) % 60, 0, Math.PI * 2); ctx.stroke();
+        }
         ctx.setLineDash([]);
+        // Aura edge ring
+        ctx.strokeStyle = 'rgba(220,238,255,0.18)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.jamRadius, 0, Math.PI * 2); ctx.stroke();
+        ctx.lineWidth = 1;
+
+        // EMP charge warning
+        if (this.empCharge > 0) {
+            const t = this.empCharge;
+            ctx.strokeStyle = 'rgba(150,220,255,' + (0.3 + t * 0.6) + ')';
+            ctx.lineWidth = 2 + t * 3;
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.size + 12 + Math.sin(performance.now() * 0.02) * 4, 0, Math.PI * 2); ctx.stroke();
+            ctx.lineWidth = 1;
+        }
+        // EMP active pulse wave
+        if (this.empPulse > 0) {
+            const a = 1 - this.empPulse / this.empMaxRadius;
+            ctx.strokeStyle = 'rgba(180,230,255,' + a + ')';
+            ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.empPulse, 0, Math.PI * 2); ctx.stroke();
+            ctx.lineWidth = 1;
+        }
+
         const sonarVis = this.markedTimer > 0 ? clamp(this.markedTimer / 0.5, 0, 1) : 0;
         const vis = Math.max(0.18, sonarVis);
         ctx.globalAlpha = vis;
+        // Distorted shifting body
         ctx.fillStyle = '#ddeeff';
         ctx.beginPath();
         for (let i = 0; i < this.vertices.length; i++) {
             const v = this.vertices[i];
-            const jitter = Math.sin(performance.now() * 0.01 + i) * 2;
+            const jitter = Math.sin(performance.now() * 0.01 + i) * 3;
             const px = this.x + Math.cos(v.a + this.phaseTimer * 0.3) * (v.r + jitter);
             const py = this.y + Math.sin(v.a + this.phaseTimer * 0.3) * (v.r + jitter);
             i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
         }
         ctx.closePath(); ctx.fill();
+        // Inner core
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.size * 0.35, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
-        for (let i = 0; i < 3; i++) {
+        // Static noise specks
+        for (let i = 0; i < 5; i++) {
             ctx.fillStyle = '#ffffff';
-            ctx.globalAlpha = 0.3 + Math.random() * 0.3;
+            ctx.globalAlpha = 0.3 + Math.random() * 0.4;
             ctx.fillRect(this.x + rand(-this.size, this.size), this.y + rand(-this.size, this.size), 2, 2);
         }
         ctx.globalAlpha = 1;
         this.drawHPBar();
     }
 }
+let jammerEMPFlash = 0;
 
-// Boss 4: Phantom Lord (480s) — phases through walls, teleports, summons phantoms
+// Boss 4: Phantom Lord — ambush teleporter.
+// Mechanic: Becomes intangible (invulnerable, very low alpha) for 1.5s
+// before each teleport. Teleports to one of 4 cardinal positions around
+// player at MID range and immediately fires a tight aimed cone.
+// Periodic 360° "phase nova" expanding ring (must be dodged inward or out).
+// Phantoms summoned 2 at a time, but on opposite sides of the player.
 class BossPhantomLord extends Boss {
     constructor() {
-        super('phantomlord', 35, rand(100, W - 100), rand(100, H - 100));
+        super('phantomlord', 50, rand(100, W - 100), rand(100, H - 100));
         this.score = 600;
-        this.size = 36;
+        this.size = 38;
         this.attackTimer = 2.5;
-        this.teleportTimer = 8;
+        this.teleportTimer = 6;
         this.summonTimer = 12;
         this.driftAngle = rand(0, Math.PI * 2);
         this.teleportFlash = 0;
+        // Intangible state
+        this.intangible = 0;       // seconds remaining of intangible phase
+        // Nova attack
+        this.novaTimer = 11;
+        this.novaCharge = 0;
+        this.novaRadius = 0;
+        this.novaActive = false;
     }
     update() {
         super.update();
         if (this.markedTimer > 0) this.markedTimer -= dt;
         this.phaseTimer += dt;
         if (this.teleportFlash > 0) this.teleportFlash -= dt;
-        // Erratic pursuit — drifts toward player (phases through walls)
-        const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
-        this.driftAngle = lerp(this.driftAngle, toPlayer, 0.03);
-        this.driftAngle += Math.sin(this.phaseTimer * 2) * 0.06;
-        this.x += Math.cos(this.driftAngle) * 1.8 * dt * 60;
-        this.y += Math.sin(this.driftAngle) * 1.8 * dt * 60;
+        if (this.intangible > 0) this.intangible -= dt;
+
+        // Drift toward player when tangible
+        if (this.intangible <= 0) {
+            const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
+            this.driftAngle = lerp(this.driftAngle, toPlayer, 0.03);
+            this.driftAngle += Math.sin(this.phaseTimer * 2) * 0.06;
+            this.x += Math.cos(this.driftAngle) * 1.6 * dt * 60;
+            this.y += Math.sin(this.driftAngle) * 1.6 * dt * 60;
+        } else {
+            // Slowly drift while phasing
+            this.x += Math.cos(this.driftAngle) * 0.6 * dt * 60;
+            this.y += Math.sin(this.driftAngle) * 0.6 * dt * 60;
+        }
         this.x = clamp(this.x, 30, W - 30); this.y = clamp(this.y, 30, H - 30);
-        // Teleport every 8s
+
+        // Teleport cycle: become intangible, then teleport + immediate attack
         this.teleportTimer -= dt;
-        if (this.teleportTimer <= 0) {
-            this.teleportTimer = 7 + rand(0, 3);
-            spawnParticles(this.x, this.y, 10, '#bb77ff', 4);
-            const a = rand(0, Math.PI * 2);
-            const d = rand(120, 250);
+        if (this.teleportTimer <= 0 && this.intangible <= 0) {
+            this.intangible = 1.2;
+            spawnParticles(this.x, this.y, 8, '#bb77ff', 3);
+        }
+        // Trigger teleport when intangible window almost ends
+        if (this.intangible > 0 && this.intangible <= dt * 1.5 + 0.001 && this.teleportTimer <= 0) {
+            this.teleportTimer = 6 + rand(0, 2);
+            this.intangible = 0;  // end intangible immediately on teleport
+            spawnParticles(this.x, this.y, 12, '#bb77ff', 5);
+            // Pick one of 4 cardinal angles around player
+            const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
+            const a = angles[Math.floor(rand(0, 4))] + rand(-0.3, 0.3);
+            const d = 200 + rand(-30, 30);
             this.x = clamp(player.x + Math.cos(a) * d, 50, W - 50);
             this.y = clamp(player.y + Math.sin(a) * d, 50, H - 50);
             this.teleportFlash = 0.5;
-            spawnParticles(this.x, this.y, 10, '#bb77ff', 4);
+            spawnParticles(this.x, this.y, 16, '#ddaaff', 5);
+            // Immediate aimed cone of 5 bullets
+            const toP = Math.atan2(player.y - this.y, player.x - this.x);
+            for (let i = -2; i <= 2; i++) {
+                const b = new Bullet(this.x, this.y, toP + i * 0.12, 5.5, 1, 'enemy');
+                b.playerDmg = 14; b.markedTimer = 999; b.color = '#cc88ff'; b.radius = 4;
+                bullets.push(b);
+            }
+            this.attackTimer = 2.0; // delay regular attack
         }
-        // Fire 6 homing bolts every 2.5s
+
+        // Regular attack: 6 bullet ring (only when tangible)
         this.attackTimer -= dt;
-        if (this.attackTimer <= 0) {
-            this.attackTimer = 2.5;
+        if (this.attackTimer <= 0 && this.intangible <= 0) {
+            this.attackTimer = 2.6;
             const toP = Math.atan2(player.y - this.y, player.x - this.x);
             for (let i = 0; i < 6; i++) {
                 const ba = toP + (Math.PI * 2 / 6) * i;
@@ -3422,32 +4225,71 @@ class BossPhantomLord extends Boss {
             }
             spawnParticles(this.x, this.y, 6, '#9955dd', 2);
         }
-        // Summon 2 phantoms every 12s
+
+        // Phase nova — telegraphed expanding ring
+        if (this.novaActive) {
+            this.novaRadius += 380 * dt;
+            // Damage on intersection at any frame the player crosses ring
+            const ringDist = Math.abs(dist(this.x, this.y, player.x, player.y) - this.novaRadius);
+            if (ringDist < 16) {
+                player.takeDamage(18);
+            }
+            if (this.novaRadius > 700) { this.novaActive = false; this.novaRadius = 0; }
+        } else if (this.novaCharge > 0) {
+            this.novaCharge += dt / 1.4;
+            if (this.novaCharge >= 1) {
+                this.novaCharge = 0;
+                this.novaActive = true;
+                this.novaRadius = 30;
+                spawnParticles(this.x, this.y, 16, '#cc88ff', 4);
+            }
+        } else {
+            this.novaTimer -= dt;
+            if (this.novaTimer <= 0 && this.intangible <= 0) {
+                this.novaTimer = 10 + rand(0, 2);
+                this.novaCharge = 0.01;
+            }
+        }
+
+        // Summon phantoms — flanking pair on opposite sides of player
         this.summonTimer -= dt;
         if (this.summonTimer <= 0) {
-            this.summonTimer = 11 + rand(0, 3);
+            this.summonTimer = 13 + rand(0, 3);
             let pCount = 0;
             for (const e of enemies) { if (e.type === 'phantom' && e.alive) pCount++; }
-            const spawn = Math.min(2, Math.max(0, 6 - pCount));
-            for (let i = 0; i < spawn; i++) {
-                const a = rand(0, Math.PI * 2);
-                const px = this.x + Math.cos(a) * 50;
-                const py = this.y + Math.sin(a) * 50;
-                const ph = new Phantom(px, py);
-                ph.markedTimer = 2; ph.markIntensity = 1;
-                enemies.push(ph);
+            if (pCount < 6) {
+                const baseA = Math.atan2(player.y - this.y, player.x - this.x);
+                for (let i = 0; i < 2; i++) {
+                    const a = baseA + (i === 0 ? Math.PI / 2 : -Math.PI / 2);
+                    const px = clamp(player.x + Math.cos(a) * 130, 40, W - 40);
+                    const py = clamp(player.y + Math.sin(a) * 130, 40, H - 40);
+                    const ph = new Phantom(px, py);
+                    ph.markedTimer = 2; ph.markIntensity = 1;
+                    enemies.push(ph);
+                }
+                pickupTexts.push({ x: this.x, y: this.y - 20, text: '⚠ 包夹幻影!', color: '#bb77ff', life: 2 });
             }
-            if (spawn > 0) pickupTexts.push({ x: this.x, y: this.y - 20, text: '⚠ 幻影召唤!', color: '#bb77ff', life: 2 });
         }
+    }
+    // Intangible during phase shift — no damage
+    takeDamage(dmg) {
+        if (this.intangible > 0) {
+            // Sparks, no damage
+            spawnParticles(this.x, this.y, 3, '#bb77ff', 2);
+            this.hitFlash = 0.05;
+            return;
+        }
+        super.takeDamage(dmg);
     }
     draw() {
         const sonarVis = this.markedTimer > 0 ? clamp(this.markedTimer / 0.5, 0, 1) : 0;
-        const vis = Math.max(0.15, sonarVis);
+        let vis = Math.max(0.15, sonarVis);
+        if (this.intangible > 0) vis *= 0.35;
         const flash = this.teleportFlash > 0 ? 0.6 : 0;
         ctx.globalAlpha = Math.min(1, vis + flash);
         // Ethereal body — double circle with wavy edges
         ctx.save(); ctx.translate(this.x, this.y);
-        ctx.fillStyle = '#9944cc';
+        ctx.fillStyle = this.intangible > 0 ? 'rgba(150,80,200,0.5)' : '#9944cc';
         ctx.beginPath();
         for (let i = 0; i < 12; i++) {
             const a = (Math.PI * 2 / 12) * i;
@@ -3456,6 +4298,16 @@ class BossPhantomLord extends Boss {
             i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
         }
         ctx.closePath(); ctx.fill();
+        // Phasing rings around when intangible
+        if (this.intangible > 0) {
+            ctx.strokeStyle = 'rgba(200,140,255,0.5)';
+            ctx.lineWidth = 1.5;
+            for (let i = 0; i < 3; i++) {
+                const r = this.size + 8 + i * 12 + Math.sin(performance.now() * 0.005 + i) * 4;
+                ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+        }
         // Inner eye
         ctx.fillStyle = '#ffaaff';
         ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
@@ -3463,59 +4315,179 @@ class BossPhantomLord extends Boss {
         ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
         ctx.globalAlpha = 1;
+
+        // Nova charge / ring
+        if (this.novaCharge > 0) {
+            const t = this.novaCharge;
+            ctx.strokeStyle = 'rgba(204,136,255,' + (0.3 + t * 0.5) + ')';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 8]);
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.size + 20 + t * 30, 0, Math.PI * 2); ctx.stroke();
+            ctx.setLineDash([]); ctx.lineWidth = 1;
+        }
+        if (this.novaActive) {
+            const a = 1 - this.novaRadius / 700;
+            ctx.strokeStyle = 'rgba(204,136,255,' + a + ')';
+            ctx.lineWidth = 5;
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.novaRadius, 0, Math.PI * 2); ctx.stroke();
+            ctx.strokeStyle = 'rgba(255,200,255,' + (a * 0.6) + ')';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.novaRadius - 4, 0, Math.PI * 2); ctx.stroke();
+            ctx.lineWidth = 1;
+        }
         this.drawHPBar();
     }
 }
 
-// Boss 5: Overload Core (600s) — final boss, spiral bullets + phase 2 frenzy
+// Boss 5: Overload Core — three-phase final boss.
+// Phase 1 (>75%): slow spiral bullets + occasional summons.
+// Phase 2 (<=75%): adds rotating LASER turret (one beam from core).
+// Phase 3 (<=40%): "Overload" — frenzy spiral + double-arms + reflective
+//                  bullets that bounce once off walls, plus explosive
+//                  cluster shells that detonate into 8-bullet rings.
+// Phase 4 (<=15%): "Death Bloom" — periodic radial bullet wall (gap to dodge through).
 class BossOverload extends Boss {
     constructor() {
-        super('overload', 50, W / 2, H / 2);
+        super('overload', 75, W / 2, H / 2);
         this.score = 1000;
-        this.size = 45;
+        this.size = 50;
         this.attackTimer = 0.4;
         this.spiralAngle = 0;
         this.summonTimer = 15;
-        this.phase2 = false;
+        this.phase = 1;
+        // Laser turret (phase 2+)
+        this.laserAngle = 0;
+        this.laserActive = 0;
+        this.laserTimer = 5;
+        this.laserCharge = 0;
+        // Cluster shell (phase 3+)
+        this.clusterTimer = 6;
+        // Death bloom (phase 4)
+        this.bloomTimer = 7;
+        this.bloomCharge = 0;
     }
     update() {
         super.update();
         if (this.markedTimer > 0) this.markedTimer -= dt;
         this.phaseTimer += dt;
-        // Enter phase 2 below 50% HP
-        if (!this.phase2 && this.hp <= this.maxHp * 0.5) {
-            this.phase2 = true;
-            pickupTexts.push({ x: this.x, y: this.y - 30, text: '⚠ 过载模式!', color: '#ff0000', life: 3 });
-            spawnParticles(this.x, this.y, 20, '#ff4400', 5);
+
+        // Phase transitions
+        const hpPct = this.hp / this.maxHp;
+        if (this.phase === 1 && hpPct <= 0.75) {
+            this.phase = 2;
+            pickupTexts.push({ x: this.x, y: this.y - 30, text: '⚠ 激光阵列上线!', color: '#ffaa00', life: 2.5 });
+            spawnParticles(this.x, this.y, 16, '#ffaa00', 4);
+        } else if (this.phase === 2 && hpPct <= 0.4) {
+            this.phase = 3;
+            pickupTexts.push({ x: this.x, y: this.y - 30, text: '⚠ 过载模式!', color: '#ff2200', life: 3 });
+            spawnParticles(this.x, this.y, 24, '#ff4400', 6);
+        } else if (this.phase === 3 && hpPct <= 0.15) {
+            this.phase = 4;
+            pickupTexts.push({ x: this.x, y: this.y - 30, text: '⚠ 死亡绽放!', color: '#ff0000', life: 3 });
+            spawnParticles(this.x, this.y, 32, '#ff0066', 6);
         }
-        const spd = this.phase2 ? 2.2 : 1.2;
+
+        // Movement: faster in later phases
+        const spd = [0, 1.0, 1.5, 2.4, 3.0][this.phase];
         const toP = Math.atan2(player.y - this.y, player.x - this.x);
         this.x += Math.cos(toP) * spd * dt * 60;
         this.y += Math.sin(toP) * spd * dt * 60;
         this.x = clamp(this.x, 50, W - 50); this.y = clamp(this.y, 50, H - 50);
-        // Spiral bullet pattern
-        const fireRate = this.phase2 ? 0.15 : 0.35;
+
+        // Spiral bullets — heat up by phase
+        const fireRate = [0, 0.4, 0.3, 0.18, 0.13][this.phase];
         this.attackTimer -= dt;
         if (this.attackTimer <= 0) {
             this.attackTimer = fireRate;
-            this.spiralAngle += this.phase2 ? 0.7 : 0.5;
-            const arms = this.phase2 ? 4 : 2;
+            this.spiralAngle += [0, 0.4, 0.55, 0.75, 0.9][this.phase];
+            const arms = [0, 2, 3, 4, 5][this.phase];
             for (let i = 0; i < arms; i++) {
                 const ba = this.spiralAngle + (Math.PI * 2 / arms) * i;
-                const b = new Bullet(this.x, this.y, ba, this.phase2 ? 5.5 : 4, 1, 'enemy');
-                b.playerDmg = this.phase2 ? 18 : 12;
+                const b = new Bullet(this.x, this.y, ba, 4 + this.phase * 0.4, 1, 'enemy');
+                b.playerDmg = 10 + this.phase * 2;
                 b.markedTimer = 999;
-                b.color = this.phase2 ? '#ff2200' : '#ff6633';
-                b.radius = this.phase2 ? 4 : 3;
+                b.color = ['', '#ff6633', '#ff5522', '#ff2200', '#ff0033'][this.phase];
+                b.radius = 3 + (this.phase >= 3 ? 1 : 0);
+                // Phase 3+ bullets bounce once
+                if (this.phase >= 3) b.bounces = 1;
                 bullets.push(b);
             }
         }
+
+        // Phase 2+: laser turret
+        if (this.phase >= 2) {
+            if (this.laserActive > 0) {
+                this.laserActive -= dt;
+                this.laserAngle += (this.phase >= 3 ? 1.3 : 0.85) * dt;
+                const bx = this.x + Math.cos(this.laserAngle) * 900;
+                const by = this.y + Math.sin(this.laserAngle) * 900;
+                if (pointToSegmentDist(player.x, player.y, this.x, this.y, bx, by) < 14) {
+                    player.takeDamage(0.5);
+                }
+            } else if (this.laserCharge > 0) {
+                this.laserCharge += dt / 0.9;
+                this.laserAngle = Math.atan2(player.y - this.y, player.x - this.x);
+                if (this.laserCharge >= 1) {
+                    this.laserCharge = 0;
+                    this.laserActive = this.phase >= 3 ? 2.2 : 1.6;
+                }
+            } else {
+                this.laserTimer -= dt;
+                if (this.laserTimer <= 0) {
+                    this.laserTimer = this.phase >= 3 ? 4 : 5.5;
+                    this.laserCharge = 0.01;
+                }
+            }
+        }
+
+        // Phase 3+: cluster shells
+        if (this.phase >= 3) {
+            this.clusterTimer -= dt;
+            if (this.clusterTimer <= 0) {
+                this.clusterTimer = 5;
+                // Spawn a slow shell that explodes after 1.4s into 8 bullets
+                const a = Math.atan2(player.y - this.y, player.x - this.x);
+                const sh = new Bullet(this.x, this.y, a, 2.5, 1, 'enemy');
+                sh.playerDmg = 16; sh.markedTimer = 999; sh.color = '#ffaa44'; sh.radius = 6;
+                sh.cluster = 1.4;  // explodes in 1.4s
+                bullets.push(sh);
+            }
+        }
+
+        // Phase 4: death bloom — radial wall with single gap
+        if (this.phase === 4) {
+            if (this.bloomCharge > 0) {
+                this.bloomCharge += dt / 1.0;
+                if (this.bloomCharge >= 1) {
+                    this.bloomCharge = 0;
+                    // Fire 24 bullets radially with a 3-bullet-wide gap toward random direction
+                    const gapAngle = Math.atan2(player.y - this.y, player.x - this.x) + rand(-0.6, 0.6);
+                    for (let i = 0; i < 24; i++) {
+                        const ba = (Math.PI * 2 / 24) * i;
+                        // Skip 3 angles forming the gap
+                        const angDiff = Math.abs(((ba - gapAngle + Math.PI) % (Math.PI * 2)) - Math.PI);
+                        if (angDiff < 0.4) continue;
+                        const b = new Bullet(this.x, this.y, ba, 5.5, 1, 'enemy');
+                        b.playerDmg = 14; b.markedTimer = 999; b.color = '#ff0033'; b.radius = 4;
+                        bullets.push(b);
+                    }
+                    spawnParticles(this.x, this.y, 16, '#ff0033', 5);
+                }
+            } else {
+                this.bloomTimer -= dt;
+                if (this.bloomTimer <= 0) {
+                    this.bloomTimer = 5.5;
+                    this.bloomCharge = 0.01;
+                }
+            }
+        }
+
         // Summon mixed enemies
         this.summonTimer -= dt;
         if (this.summonTimer <= 0) {
-            this.summonTimer = this.phase2 ? 8 : 14;
+            this.summonTimer = [0, 14, 12, 8, 6][this.phase];
             const types = ['hunter', 'drifter', 'phantom'];
-            const count = this.phase2 ? 3 : 2;
+            const count = [0, 2, 2, 3, 3][this.phase];
             for (let i = 0; i < count; i++) {
                 const type = types[Math.floor(rand(0, types.length))];
                 const a = rand(0, Math.PI * 2);
@@ -3535,21 +4507,30 @@ class BossOverload extends Boss {
         const sonarVis = this.markedTimer > 0 ? clamp(this.markedTimer / 0.5, 0, 1) : 0;
         const vis = Math.max(0.2, sonarVis);
         ctx.globalAlpha = vis;
-        // Pulsing core
-        const pulse = 0.8 + Math.sin(performance.now() * 0.005) * 0.2;
-        const coreColor = this.phase2 ? '#ff2200' : '#ff6633';
+        // Pulsing core — color by phase
+        const pulse = 0.8 + Math.sin(performance.now() * 0.005 * this.phase) * 0.2;
+        const coreColor = ['', '#ff6633', '#ff5522', '#ff2200', '#ff0033'][this.phase];
         ctx.fillStyle = coreColor;
         ctx.beginPath(); ctx.arc(this.x, this.y, this.size * pulse, 0, Math.PI * 2); ctx.fill();
-        // Electric arcs
-        ctx.strokeStyle = this.phase2 ? '#ffaa00' : '#ffcc66';
+        // Phase 4: chaotic crackling halo
+        if (this.phase >= 4) {
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = '#ff0033';
+            ctx.globalAlpha = vis * 0.3;
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.size * 1.5 + Math.sin(performance.now() * 0.02) * 6, 0, Math.PI * 2); ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = vis;
+        }
+        // Electric arcs — denser in higher phases
+        ctx.strokeStyle = ['', '#ffcc66', '#ffaa44', '#ffaa00', '#ff6600'][this.phase];
         ctx.lineWidth = 2;
-        for (let i = 0; i < (this.phase2 ? 8 : 5); i++) {
-            const a = (Math.PI * 2 / (this.phase2 ? 8 : 5)) * i + this.phaseTimer * 1.5;
+        const arcs = [0, 5, 6, 8, 10][this.phase];
+        for (let i = 0; i < arcs; i++) {
+            const a = (Math.PI * 2 / arcs) * i + this.phaseTimer * (1.5 + this.phase * 0.4);
             const r1 = this.size * 0.6;
             const r2 = this.size * (1.2 + Math.sin(performance.now() * 0.008 + i) * 0.3);
             ctx.beginPath();
             ctx.moveTo(this.x + Math.cos(a) * r1, this.y + Math.sin(a) * r1);
-            // Jagged arc
             const mid = a + 0.15;
             ctx.lineTo(this.x + Math.cos(mid) * (r1 + r2) * 0.55, this.y + Math.sin(mid) * (r1 + r2) * 0.55);
             ctx.lineTo(this.x + Math.cos(a) * r2, this.y + Math.sin(a) * r2);
@@ -3561,6 +4542,44 @@ class BossOverload extends Boss {
         ctx.globalAlpha = vis * (0.5 + Math.sin(performance.now() * 0.01) * 0.3);
         ctx.beginPath(); ctx.arc(this.x, this.y, this.size * 0.3, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
+
+        // Laser
+        if (this.laserCharge > 0) {
+            ctx.strokeStyle = 'rgba(255,150,80,' + (0.3 + this.laserCharge * 0.5) + ')';
+            ctx.lineWidth = 1 + this.laserCharge * 2;
+            ctx.setLineDash([6, 6]);
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x + Math.cos(this.laserAngle) * 900, this.y + Math.sin(this.laserAngle) * 900);
+            ctx.stroke();
+            ctx.setLineDash([]); ctx.lineWidth = 1;
+        }
+        if (this.laserActive > 0) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            const grad = ctx.createLinearGradient(this.x, this.y,
+                this.x + Math.cos(this.laserAngle) * 900, this.y + Math.sin(this.laserAngle) * 900);
+            grad.addColorStop(0, 'rgba(255,220,80,0.95)');
+            grad.addColorStop(1, 'rgba(255,40,0,0)');
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = 9 + Math.sin(performance.now() * 0.04) * 3;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x + Math.cos(this.laserAngle) * 900, this.y + Math.sin(this.laserAngle) * 900);
+            ctx.stroke();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+            ctx.stroke();
+            ctx.restore();
+        }
+        // Death bloom charge ring
+        if (this.bloomCharge > 0) {
+            const t = this.bloomCharge;
+            ctx.strokeStyle = 'rgba(255,0,50,' + (0.4 + t * 0.5) + ')';
+            ctx.lineWidth = 2 + t * 3;
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.size + 18 + Math.sin(performance.now() * 0.02) * 5, 0, Math.PI * 2); ctx.stroke();
+            ctx.lineWidth = 1;
+        }
         this.drawHPBar();
     }
 }
@@ -4029,7 +5048,12 @@ function handleCollisions() {
             if (!activeBoss || !activeBoss.alive) break; // boss died this frame, stop
             if (!b.alive || b.owner !== 'player') continue;
             if (dist(b.x, b.y, activeBoss.x, activeBoss.y) < activeBoss.size + b.radius) {
-                activeBoss.takeDamage(b.damage);
+                // Use positional damage if boss supports it (Satellite weak-points)
+                if (typeof activeBoss.takeDamageAt === 'function') {
+                    activeBoss.takeDamageAt(b.damage, b.x, b.y);
+                } else {
+                    activeBoss.takeDamage(b.damage);
+                }
                 spawnParticles(b.x, b.y, 1, '#ffcc00', 1.5);
                 if (b.pierceLeft > 0) { b.pierceLeft--; } else { b.alive = false; }
             }
@@ -4042,6 +5066,12 @@ function handleCollisions() {
         if (Math.abs(b.x - player.x) > 20 || Math.abs(b.y - player.y) > 20) continue;
         if (dist(b.x, b.y, player.x, player.y) < player.radius + b.radius) {
             player.takeDamage(b.playerDmg || 15);
+            // Flare: mark the player to all squad allies (broadcast for 4s)
+            if (b.flare) {
+                broadcastSquadTag(player.x, player.y, b.x, b.y);
+                player.spottedTimer = 4;
+                pickupTexts.push({ x: player.x, y: player.y - 28, text: '⚠ 已被标记!', color: '#ff66cc', life: 1.4 });
+            }
             b.alive = false;
         }
     }
@@ -4067,9 +5097,28 @@ function handleCollisions() {
                     } else {
                         b.vy = -b.vy; b.y += b.vy * 2;
                     }
-                    // Change ownership on reflect — enemy↔player swap
-                    if (b.owner === 'enemy') { b.owner = 'player'; b.color = '#00ddff'; b.damage = 1; b.reflected = true; }
-                    else if (b.owner === 'player') { b.owner = 'enemy'; b.color = '#ff8844'; b.playerDmg = 8; }
+                    // Ricochet card: player bullets keep owner (true ricochet weapon).
+                    // Without the card: legacy behavior — enemy↔player owner swap.
+                    const ricoLv = player.cardLv('ricochet');
+                    const ricoBounces = ricoLv > 0 ? [0, 1, 1, 2, 2, 2][ricoLv] : 0;
+                    const dmgBonus = ricoLv > 0 ? [0, 1.0, 1.05, 1.0, 1.10, 1.20][ricoLv] : 1.0;
+                    if (b.owner === 'player' && ricoLv > 0) {
+                        // Initialize bounce counter if first bounce
+                        if (b.ricoLeft === undefined) b.ricoLeft = ricoBounces;
+                        if (b.ricoLeft > 0) {
+                            b.ricoLeft--;
+                            b.color = '#66ddff';
+                            b.damage = Math.max(1, b.damage * dmgBonus);
+                            b.reflected = true;
+                            spawnParticles(b.x, b.y, 4, '#66ddff', 2);
+                        } else {
+                            b.alive = false;
+                        }
+                    } else if (b.owner === 'enemy') {
+                        b.owner = 'player'; b.color = '#00ddff'; b.damage = 1; b.reflected = true;
+                    } else if (b.owner === 'player') {
+                        b.owner = 'enemy'; b.color = '#ff8844'; b.playerDmg = 8;
+                    }
                     spawnParticles(b.x, b.y, 4, '#bbddff', 2);
                 }
             }
@@ -4245,6 +5294,7 @@ function loop(now) {
 
         player.update();
         updateSpawning();
+        updateSquadTag();
         // Sonar Slow: compute speed multiplier for marked enemies
         const ssLv = player.cardLv('sonarslow');
         sonarSlowFactor = ssLv > 0 ? 1 - [0, 0.25, 0.40, 0.50, 0.58, 0.65][ssLv] : 1;
@@ -4333,6 +5383,7 @@ function loop(now) {
     }
     ctx.lineWidth = 1;
     ctx.fillStyle = '#000';
+    drawSquadPings();
     enemies.forEach(e => e.draw());
     if (activeBoss && activeBoss.alive) activeBoss.draw();
     bullets.forEach(b => b.draw());
@@ -4393,6 +5444,19 @@ function loop(now) {
         }
         ctx.globalAlpha = 1;
         ctx.textAlign = 'left';
+    }
+
+    // EMP screen flash (Jammer boss EMP pulse)
+    if (jammerEMPFlash > 0) {
+        jammerEMPFlash -= dt * 1.4;
+        const a = clamp(jammerEMPFlash, 0, 1);
+        ctx.fillStyle = 'rgba(180,220,255,' + (a * 0.18) + ')';
+        ctx.fillRect(0, 0, W, H);
+        // Static noise scanlines
+        for (let i = 0; i < 6; i++) {
+            ctx.fillStyle = 'rgba(255,255,255,' + (a * 0.08) + ')';
+            ctx.fillRect(0, rand(0, H), W, 1 + rand(0, 2));
+        }
     }
 
     ctx.restore();
@@ -4494,11 +5558,11 @@ function bossSVG(type, color) {
     }
 }
 const BOSS_GUIDE = [
-    { type: 'satellite', name: '核心卫星', desc: '旋转八边形，十字弹幕', color: '#ff4466' },
-    { type: 'splitmom', name: '分裂母体', desc: '追踪玩家，受伤分裂出猎手', color: '#ff3355' },
-    { type: 'jammer', name: '信号干扰者', desc: '削弱声纳范围，三向弹幕', color: '#ddeeff' },
-    { type: 'phantomlord', name: '幽灵领主', desc: '穿墙瞬移，召唤幻影', color: '#bb77ff' },
-    { type: 'overload', name: '过载核心', desc: '螺旋弹幕，二阶段狂暴', color: '#ff2200' },
+    { type: 'satellite', name: '核心卫星', desc: '装甲外壳，仅核心点弱点受满伤；半血开启扫射激光', color: '#ff4466' },
+    { type: 'splitmom', name: '分裂母体', desc: '蓄力猛扑撞击；受伤在玩家脚下投放孢子炸弹', color: '#ff3355' },
+    { type: 'jammer', name: '信号干扰者', desc: '大范围干扰光环吸能耗能；EMP脉冲清空声纳', color: '#ddeeff' },
+    { type: 'phantomlord', name: '幽灵领主', desc: '相位无敌瞬移到背后扇形射击；扩散波 + 包夹幻影', color: '#bb77ff' },
+    { type: 'overload', name: '过载核心', desc: '四阶段：激光→反弹弹→集束炮→死亡绽放', color: '#ff2200' },
 ];
 function renderPauseGuide() {
     const eg = document.getElementById('pauseEnemyGuide');
@@ -4580,6 +5644,8 @@ function startGame() {
     for (const entry of BOSS_SCHEDULE) entry.spawned = false;
     shownEvolveTier = 0;
     breathEvents = [false, false, false];
+    squadTagTimer = 0; squadPings = []; tagMutedRegions = [];
+    jammerEMPFlash = 0;
     shakeTimer = 0; damageFlash = 0; pickupFlashTimer = 0;
     playerNoiseRadius = 0;
     mouse.x = W / 2; mouse.y = H / 2;
